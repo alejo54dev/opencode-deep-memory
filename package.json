@@ -1,0 +1,46 @@
+{
+	"name": "@sistema54/deep-large-memory",
+	"version": "1.0.0",
+	"description": "Long-term memory plugin for opencode using SQLite FTS5. Local, zero deps, automatic context recall.",
+	"type": "module",
+	"main": "src/index.ts",
+	"exports": {
+		".": {
+			"import": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"opencode-plugin": true,
+	"keywords": [
+		"opencode",
+		"plugin",
+		"memory",
+		"context",
+		"fts5",
+		"sqlite",
+		"long-term-memory"
+	],
+	"license": "MIT",
+	"author": "Alejandro Carraretto",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/alejo54dev/deep-large-memory.git"
+	},
+	"bugs": {
+		"url": "https://github.com/alejo54dev/deep-large-memory/issues"
+	},
+	"homepage": "https://github.com/alejo54dev/deep-large-memory#readme",
+	"files": [
+		"dist/",
+		"src/",
+		"tests/",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "bun build ./src/index.ts --outdir ./dist --target bun",
+		"test": "bun test",
+		"prepublishOnly": "bun run build && bun test",
+		"preversion": "bun test"
+	}
+}
