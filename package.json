@@ -3,11 +3,11 @@
 	"version": "1.0.0",
 	"description": "Long-term memory plugin for opencode using SQLite FTS5. Local, zero deps, automatic context recall.",
 	"type": "module",
-	"main": "src/index.ts",
+	"main": "src/deep-large-memory.ts",
 	"exports": {
 		".": {
-			"import": "./src/index.ts",
-			"default": "./src/index.ts"
+			"import": "./src/deep-large-memory.ts",
+			"default": "./src/deep-large-memory.ts"
 		}
 	},
 	"opencode-plugin": true,
@@ -38,7 +38,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "bun build ./src/index.ts --outdir ./dist --target bun",
+		"build": "bun build ./src/deep-large-memory.ts --outdir ./dist --target bun",
 		"test": "bun test",
 		"prepublishOnly": "bun run build && bun test",
 		"preversion": "bun test"
