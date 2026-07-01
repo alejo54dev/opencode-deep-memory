@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test";
-import { sanitizeFtsQuery, contentOverlap, compressMemories, sessionHash } from "../src/deep-large-memory.js";
-import type { MemoryHit } from "../src/deep-large-memory.js";
+import { sanitizeFtsQuery, contentOverlap, compressMemories, sessionHash } from "../src/deep-memory.js";
+import type { MemoryHit } from "../src/deep-memory.js";
 
 // ---------------------------------------------------------------------------
 // sanitizeFtsQuery

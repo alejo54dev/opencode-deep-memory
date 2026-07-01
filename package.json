@@ -1,13 +1,13 @@
 {
-	"name": "@sistema54/deep-large-memory",
+	"name": "@sistema54/deep-memory",
 	"version": "1.0.0",
-	"description": "Long-term memory plugin for opencode using SQLite FTS5. Local, zero deps, automatic context recall.",
+	"description": "Memory plugin for opencode using SQLite FTS5. Local, zero deps, automatic context recall.",
 	"type": "module",
-	"main": "src/deep-large-memory.ts",
+	"main": "src/deep-memory.ts",
 	"exports": {
 		".": {
-			"import": "./src/deep-large-memory.ts",
-			"default": "./src/deep-large-memory.ts"
+			"import": "./src/deep-memory.ts",
+			"default": "./src/deep-memory.ts"
 		}
 	},
 	"opencode-plugin": true,
@@ -17,19 +17,18 @@
 		"memory",
 		"context",
 		"fts5",
-		"sqlite",
-		"long-term-memory"
+		"sqlite"
 	],
 	"license": "MIT",
 	"author": "Alejandro Carraretto",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/alejo54dev/deep-large-memory.git"
+		"url": "git+https://github.com/alejo54dev/deep-memory.git"
 	},
 	"bugs": {
-		"url": "https://github.com/alejo54dev/deep-large-memory/issues"
+		"url": "https://github.com/alejo54dev/deep-memory/issues"
 	},
-	"homepage": "https://github.com/alejo54dev/deep-large-memory#readme",
+	"homepage": "https://github.com/alejo54dev/deep-memory#readme",
 	"files": [
 		"dist/",
 		"src/",
@@ -38,7 +37,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "bun build ./src/deep-large-memory.ts --outdir ./dist --target bun",
+		"build": "bun build ./src/deep-memory.ts --outdir ./dist --target bun",
 		"test": "bun test",
 		"prepublishOnly": "bun run build && bun test",
 		"preversion": "bun test"

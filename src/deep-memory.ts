@@ -1,6 +1,6 @@
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -36,6 +36,12 @@ export interface MemoryHit
 const HOME = process.env.HOME || "/tmp";
 const STORAGE_DIR = `${HOME}/.config/opencode/storage`;
 const DB_PATH = `${STORAGE_DIR}/deep-memory.db`;
+
+// ─── Config / Log files ────────────────────────────────────────────────
+
+const CONFIG_DIR = `${HOME}/.config/opencode`;
+const CONFIG_FILE = `${CONFIG_DIR}/deep-memory.json`;
+const LOG_FILE = `${CONFIG_DIR}/deep-memory.log`;
 
 let _db: Database | null = null;
 
@@ -144,12 +150,42 @@ function closeDb(): void
 
 let _logLevel: "silent" | "info" | "debug" = "info";
 
-function log( level: "info" | "debug", ...args: unknown[] ): void
+function log( level: "info" | "debug" | "error", ...args: unknown[] ): void
 {
 	if ( _logLevel === "silent" ) return;
 	if ( level === "debug" && _logLevel !== "debug" ) return;
 
-	console.log( "[deep-memory]", ...args );
+	const label = level.toUpperCase();
+	const msg = args.map( a => String( a ) ).join( " " );
+
+	try
+	{
+		appendFileSync( LOG_FILE, `[${new Date().toISOString()}] [${label}]: ${msg}\n` );
+	}
+	catch {}
+}
+
+function loadConfigFromFile(): Partial<DeepMemoryOptions> | null
+{
+	if ( !existsSync( CONFIG_FILE ) ) return null;
+
+	try
+	{
+		const raw = JSON.parse( readFileSync( CONFIG_FILE, "utf-8" ) );
+
+		return {
+			fts_results: raw.fts_results,
+			keep: raw.keep,
+			max_tokens_memory: raw.max_tokens_memory,
+			max_age_days: raw.max_age_days,
+			log_level: raw.log_level,
+		};
+	}
+	catch ( err )
+	{
+		log( "error", `Config file error: ${(err as Error).message}` );
+		return null;
+	}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -378,7 +414,8 @@ const DEFAULT_OPTIONS: DeepMemoryOptions = {
 
 export default (async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 {
-	const options: DeepMemoryOptions = { ...DEFAULT_OPTIONS, ...( rawOptions || {} ) };
+	const fileConfig = loadConfigFromFile();
+	const options: DeepMemoryOptions = { ...DEFAULT_OPTIONS, ...fileConfig, ...( rawOptions || {} ) };
 
 	if ( options.log_level )
 		_logLevel = options.log_level;
@@ -388,6 +425,8 @@ export default (async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 
 	const db = getDb();
 	process.on( "exit", () => closeDb() );
+
+	log( "info", `Initialized | session: ${sessionId}` );
 
 	return {
 		"experimental.chat.messages.transform": async ( _input, output ) =>
@@ -419,7 +458,7 @@ export default (async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			}
 			catch ( err )
 			{
-				console.error( "[deep-memory] messages.transform error:", err );
+				log( "error", "messages.transform error:", (err as Error).message );
 			}
 		},
 
@@ -486,7 +525,7 @@ export default (async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			}
 			catch ( err )
 			{
-				console.error( "[deep-memory] system.transform error:", err );
+				log( "error", "system.transform error:", (err as Error).message );
 			}
 		},
 	};
