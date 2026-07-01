@@ -333,13 +333,14 @@ function pruneOldTurns(
 {
 	if ( keep <= 0 ) return 0;
 
-	const count = ( db.query(
+	const row = db.query(
 		"SELECT COUNT(*) as c FROM turns WHERE session_id = ?"
-	).get( sessionId ) as { c: number } ).c;
+	).get( sessionId ) as { c: number };
+	const count = row.c;
 
-	if ( count.c <= keep ) return 0;
+	if ( count <= keep ) return 0;
 
-	const toDelete = count.c - keep;
+	const toDelete = count - keep;
 
 	db.run( `
 		DELETE FROM turns
