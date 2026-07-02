@@ -26,7 +26,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.3
+ *	@version 1.0.4
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -36,7 +36,7 @@ import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, existsSync, appendFileSync, readFileSync, renameSync, unlinkSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────
 
@@ -611,7 +611,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	const storage = Storage.open();
 	const state = new SessionState();
 
-	const sessionKey = ctx.worktree || ctx.directory || "default";
+	const sessionKey = `${hostname()}:${ctx.directory || process.cwd()}`;
 	const sessionId = sessionHash( sessionKey );
 
 	const onExit = () =>
@@ -621,7 +621,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	};
 	process.once( "exit", onExit );
 
-	logger.log( "info", `Initialized | session: ${sessionId} | worktree: ${sessionKey} | v1.0.3` );
+	logger.log( "info", `Initialized | session: ${sessionId}` );
 
 	return {
 		"experimental.chat.messages.transform": async ( _input, output ) =>

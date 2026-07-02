@@ -2,58 +2,7 @@
 
 OpenCode plugin — persistent long-term memory via SQLite FTS5.
 
-Stores conversation turns, recalls relevant context on each turn, prunes old entries, deduplicates near-duplicates.
-
-## Install
-
-```bash
-cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
-```
-
-## Paths
-
-| File | Location |
-|---|---|
-| Plugin | `~/.config/opencode/plugins/deep-memory.ts` |
-| Database | `~/.config/opencode/storage/deep-memory.db` |
-| Config | `~/.config/opencode/deep-memory.json` |
-| Log | `~/.config/opencode/deep-memory.log` |
-
-Plugin lives ONLY in `plugins/`. Do not copy to `~/.config/opencode/` root.
-
-## Config
-
-`~/.config/opencode/deep-memory.json`:
-
-```json
-{
-	"fts_results": 5,
-	"keep": 500,
-	"max_tokens_memory": 1500,
-	"max_age_days": 0,
-	"log_level": "info",
-	"prune_check_interval": 10,
-	"overlap_threshold": 0.4,
-	"dedup_threshold": 0.5,
-	"recent_window": 30,
-	"overlap_window": 15,
-	"max_snippet_chars": 250
-}
-```
-
-| Key | Default | Range | Purpose |
-|---|---|---|---|
-| `fts_results` | 5 | 1–50 | Max FTS5 hits per recall |
-| `keep` | 500 | 0–100000 | Max turns per session (0 = unlimited) |
-| `max_tokens_memory` | 1500 | 100–10000 | Token budget for injected context |
-| `max_age_days` | 0 | 0–3650 | Age filter (0 = no filter) |
-| `log_level` | `info` | silent/info/debug | Logger verbosity |
-| `prune_check_interval` | 10 | 1–1000 | Turns between prune checks |
-| `overlap_threshold` | 0.4 | 0–1 | Jaccard overlap to exclude from recall |
-| `dedup_threshold` | 0.5 | 0–1 | Jaccard overlap to dedup within recall |
-| `recent_window` | 30 | 1–500 | Recent turns scanned for query |
-| `overlap_window` | 15 | 1–200 | Recent turns compared against hits |
-| `max_snippet_chars` | 250 | 50–2000 | Max chars per recalled snippet |
+Install, paths, and config example: see script header in `deep-memory.ts`.
 
 ## Schema
 

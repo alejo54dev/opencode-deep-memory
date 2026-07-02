@@ -24,11 +24,7 @@ deep-memory/
 
 ## Deploy
 
-```bash
-cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
-```
-
-Only `plugins/` is the canonical load path. Do NOT copy to `~/.config/opencode/` root.
+See script header (`deep-memory.ts:8`) for install path. Canonical load path: `plugins/` only.
 
 ## Verify
 
@@ -63,7 +59,7 @@ rm ~/.config/opencode/deep-memory.log
 ## Key invariants
 
 - `content_hash` = SHA-1 hex (40 chars) of `role + ":" + content`.
-- `session_id` = SHA-1 hex truncated to 16 chars of worktree path.
+- `session_id` = SHA-1 hex truncated to 16 chars of `hostname + ":" + cwd` (portable, no worktree dep).
 - FTS5 tokenizer: `unicode61 remove_diacritics 1` (case + diacritic insensitive).
 - Content normalized lowercase before insert (consistent with FTS5).
 - Dedup via `INSERT OR IGNORE` on `idx_turns_dedup`.
@@ -84,3 +80,5 @@ rm ~/.config/opencode/deep-memory.log
 - Do not bump major version without explicit user request.
 - Do not push without explicit user request.
 - Do not modify `~/.config/opencode/storage/deep-memory.db` directly — use the plugin.
+- Do not copy `deep-memory.ts` to `~/.config/opencode/` root. Only `plugins/` is canonical.
+- Do not duplicate script header info (paths, install, config example) across md files.
