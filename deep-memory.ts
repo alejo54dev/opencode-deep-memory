@@ -26,7 +26,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.5
+ *	@version 1.0.7
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -200,13 +200,15 @@ class Storage
 			"SELECT id, session_id, role, content, created_at FROM turns WHERE session_id = ? ORDER BY created_at DESC LIMIT ?"
 		);
 		this.stmtSearchNoAge = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at, rank
+			`SELECT t.id, t.role, t.content, t.created_at,
+			        rank * CASE WHEN t.role = 'user' THEN 2.0 ELSE 1.0 END AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
 			 WHERE turns_fts MATCH ? AND t.session_id = ?
 			 ORDER BY rank LIMIT ?`
 		);
 		this.stmtSearchWithAge = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at, rank
+			`SELECT t.id, t.role, t.content, t.created_at,
+			        rank * CASE WHEN t.role = 'user' THEN 2.0 ELSE 1.0 END AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
 			 WHERE turns_fts MATCH ? AND t.session_id = ?
 			   AND t.created_at >= datetime('now', ?)
@@ -490,12 +492,7 @@ function compressMemories(
 		if ( fp ) seenFingerprints.add( fp );
 	}
 
-	pick.sort( ( a, b ) =>
-	{
-		if ( a.role !== b.role )
-			return a.role === "assistant" ? -1 : 1;
-		return a.rank - b.rank;
-	} );
+	pick.sort( ( a, b ) => a.rank - b.rank );
 
 	const parts: string[] = [];
 	let budget = maxTokens;
