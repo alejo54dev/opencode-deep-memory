@@ -708,7 +708,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 
 				if ( hits.length === 0 )
 				{
-					logger.log( "debug", "Recall: 0 — no FTS matches | queryLen=", query.length );
+					logger.log( "debug", `Recall: 0 — no FTS matches | queryLen=${query.length}` );
 					state.lastRecallQuery = query;
 					return;
 				}
@@ -728,7 +728,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 
 				if ( filteredHits.length === 0 )
 				{
-					logger.log( "debug", "Recall: 0 — excluded by overlap (", hits.length, "hits)" );
+					logger.log( "debug", `Recall: 0 — excluded by overlap (${hits.length} hits)` );
 					state.lastRecallQuery = query;
 					return;
 				}
@@ -746,7 +746,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					return;
 				}
 
-				logger.log( "info", "Recall:", filteredHits.length, "memories (", context.length, "chars) | total recalls:", state.recallCount, "hits:", state.hitCount );
+				logger.log( "info", `Recall: ${filteredHits.length} memories (${context.length} chars) | total recalls: ${state.recallCount} hits: ${state.hitCount}` );
 				output.system.push( `[Memory Recall]\n${context}` );
 				state.lastRecallQuery = query;
 			}
