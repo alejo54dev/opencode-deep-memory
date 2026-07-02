@@ -4,3 +4,4 @@ dist/
 storage/
 .env
 .DS_Store
+.handoff/
