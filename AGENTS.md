@@ -59,7 +59,7 @@ rm ~/.config/opencode/deep-memory.log
 ## Key invariants
 
 - `content_hash` = SHA-1 hex (40 chars) of `role + ":" + content`.
-- `session_id` = SHA-1 hex truncated to 16 chars of `hostname + ":" + cwd` (portable, no worktree dep).
+- `session_id` = SHA-1 hex truncated to 16 chars of `username + ":" + cwd` (portable, no worktree dep, stable across hostname changes).
 - FTS5 tokenizer: `unicode61 remove_diacritics 1` (case + diacritic insensitive).
 - Content normalized lowercase before insert (consistent with FTS5).
 - Dedup via `INSERT OR IGNORE` on `idx_turns_dedup`.
