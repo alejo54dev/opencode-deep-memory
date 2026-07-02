@@ -26,7 +26,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.3
+*	@version 1.0.1
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -34,8 +34,7 @@
 
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
-import { mkdirSync, existsSync, appendFileSync, readFileSync, renameSync, unlinkSync, statSync } from "node:fs";
+import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────
@@ -91,63 +90,20 @@ interface MessageLike
 	parts: Array<{ type: string; text?: string }>;
 }
 
-// ─── Logger (async, rotating) ──────────────────────────────────────────────
+// ─── Logger ────────────────────────────────────────────────────────────────
 
 class Logger
 {
 	private level: number;
-	private buffer: string[] = [];
-	private flushTimer: ReturnType<typeof setInterval> | null = null;
-	private static readonly MAX_LOG_SIZE = 10 * 1024 * 1024;
-	private static readonly MAX_FILES = 3;
-	private static readonly FLUSH_INTERVAL_MS = 1000;
 
 	constructor( level: "silent" | "info" | "debug" )
 	{
 		this.level = { silent: 0, info: 1, debug: 2 }[ level ];
-		this.startFlushTimer();
 	}
 
-	private startFlushTimer(): void
+	set( level: "silent" | "info" | "debug" ): void
 	{
-		if ( this.flushTimer ) return;
-		this.flushTimer = setInterval( () => this.flushSync(), Logger.FLUSH_INTERVAL_MS );
-		if ( this.flushTimer && typeof this.flushTimer.unref === "function" )
-			this.flushTimer.unref();
-	}
-
-	private flushSync(): void
-	{
-		if ( this.buffer.length === 0 ) return;
-		const batch = this.buffer.join( "" );
-		this.buffer = [];
-		try
-		{
-			appendFileSync( LOG_FILE, batch );
-			this.rotateIfNeeded();
-		}
-		catch { /* silent */ }
-	}
-
-	private rotateIfNeeded(): void
-	{
-		try
-		{
-			if ( !existsSync( LOG_FILE ) ) return;
-			const stat = statSync( LOG_FILE );
-			if ( stat.size < Logger.MAX_LOG_SIZE ) return;
-
-			const oldest = `${LOG_FILE}.${Logger.MAX_FILES}`;
-			if ( existsSync( oldest ) ) unlinkSync( oldest );
-
-			for ( let i = Logger.MAX_FILES - 1; i >= 1; i-- )
-			{
-				const from = i === 1 ? LOG_FILE : `${LOG_FILE}.${i - 1}`;
-				const to = `${LOG_FILE}.${i}`;
-				if ( existsSync( from ) ) renameSync( from, to );
-			}
-		}
-		catch { /* silent */ }
+		this.level = { silent: 0, info: 1, debug: 2 }[ level ];
 	}
 
 	log( level: "info" | "debug" | "error", ...args: unknown[] ): void
@@ -160,17 +116,11 @@ class Logger
 			typeof a === "string" ? a : JSON.stringify( a )
 		).join( " " );
 
-		this.buffer.push( `[${new Date().toISOString()}] [${label}]: ${msg}\n` );
-	}
-
-	dispose(): void
-	{
-		if ( this.flushTimer )
+		try
 		{
-			clearInterval( this.flushTimer );
-			this.flushTimer = null;
+			appendFileSync( LOG_FILE, `[${new Date().toISOString()}] [${label}]: ${msg}\n` );
 		}
-		this.flushSync();
+		catch { /* log file unavailable — silent */ }
 	}
 }
 
@@ -182,8 +132,7 @@ class Storage
 	private stmtInsert: ReturnType<Database["prepare"]>;
 	private stmtCount: ReturnType<Database["prepare"]>;
 	private stmtRecent: ReturnType<Database["prepare"]>;
-	private stmtSearchNoAge: ReturnType<Database["prepare"]>;
-	private stmtSearchWithAge: ReturnType<Database["prepare"]>;
+	private stmtSearch: ReturnType<Database["prepare"]>;
 	private stmtPrune: ReturnType<Database["prepare"]>;
 	private closed = false;
 
@@ -191,7 +140,7 @@ class Storage
 	{
 		this.db = db;
 		this.stmtInsert = db.prepare(
-			"INSERT OR IGNORE INTO turns (session_id, role, content, content_hash) VALUES (?, ?, ?, ?)"
+			"INSERT INTO turns (session_id, role, content, content_hash) VALUES (?, ?, ?, ?)"
 		);
 		this.stmtCount = db.prepare(
 			"SELECT COUNT(*) as c FROM turns WHERE session_id = ?"
@@ -199,17 +148,10 @@ class Storage
 		this.stmtRecent = db.prepare(
 			"SELECT id, session_id, role, content, created_at FROM turns WHERE session_id = ? ORDER BY created_at DESC LIMIT ?"
 		);
-		this.stmtSearchNoAge = db.prepare(
+		this.stmtSearch = db.prepare(
 			`SELECT t.id, t.role, t.content, t.created_at, rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
 			 WHERE turns_fts MATCH ? AND t.session_id = ?
-			 ORDER BY rank LIMIT ?`
-		);
-		this.stmtSearchWithAge = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at, rank
-			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
-			 WHERE turns_fts MATCH ? AND t.session_id = ?
-			   AND t.created_at >= datetime('now', ?)
 			 ORDER BY rank LIMIT ?`
 		);
 		this.stmtPrune = db.prepare(
@@ -227,6 +169,7 @@ class Storage
 
 		const db = new Database( DB_PATH );
 
+		// Pragmas — tuned for write-heavy, read-light workload
 		db.exec( `
 			PRAGMA synchronous          = NORMAL;
 			PRAGMA temp_store           = MEMORY;
@@ -243,9 +186,10 @@ class Storage
 			PRAGMA auto_vacuum          = OFF;
 			PRAGMA threads              = 4;
 			PRAGMA busy_timeout         = 5000;
-			PRAGMA user_version         = 2;
+			PRAGMA user_version         = 1;
 		` );
 
+		// Schema (idempotent)
 		db.exec( `
 			CREATE TABLE IF NOT EXISTS turns (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,8 +204,7 @@ class Storage
 			CREATE INDEX IF NOT EXISTS idx_turns_session_created
 				ON turns(session_id, created_at);
 			CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(
-				content, content='turns', content_rowid='id',
-				tokenize="unicode61 remove_diacritics 1"
+				content, content='turns', content_rowid='id', tokenize='unicode61'
 			);
 			CREATE TRIGGER IF NOT EXISTS turns_ai AFTER INSERT ON turns BEGIN
 				INSERT INTO turns_fts(rowid, content) VALUES (new.id, new.content);
@@ -275,6 +218,7 @@ class Storage
 			END;
 		` );
 
+		// Rebuild FTS index if needed (safe on first run)
 		try { db.run( "INSERT INTO turns_fts(turns_fts) VALUES('rebuild')" ); } catch {}
 
 		return new Storage( db );
@@ -292,6 +236,7 @@ class Storage
 		catch { /* already closed */ }
 	}
 
+	/** Insert a batch of turns in a single transaction. Returns count inserted. */
 	storeTurns(
 		sessionId: string,
 		messages: Array<{ role: "user" | "assistant"; text: string }>
@@ -304,12 +249,16 @@ class Storage
 		{
 			for ( const m of msgs )
 			{
-				const text = normalizeContent( m.text );
+				const text = m.text?.trim();
 				if ( !text ) continue;
-				const result = this.stmtInsert.run(
-					sessionId, m.role, text, hashContent( m.role, text )
-				);
-				if ( result.changes > 0 ) count++;
+				try
+				{
+					this.stmtInsert.run(
+						sessionId, m.role, text, hashContent( m.role, text )
+					);
+					count++;
+				}
+				catch { /* duplicate by unique index */ }
 			}
 		} );
 		tx( messages );
@@ -336,11 +285,21 @@ class Storage
 		const sanitized = sanitizeFtsQuery( query );
 		if ( !sanitized ) return [];
 
+		// Build query with optional age filter
+		const sql = maxAgeDays > 0
+			? `SELECT t.id, t.role, t.content, t.created_at, rank
+				 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
+				 WHERE turns_fts MATCH ? AND t.session_id = ?
+				   AND t.created_at >= datetime('now', '-${maxAgeDays} days')
+				 ORDER BY rank LIMIT ?`
+			: `SELECT t.id, t.role, t.content, t.created_at, rank
+				 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
+				 WHERE turns_fts MATCH ? AND t.session_id = ?
+				 ORDER BY rank LIMIT ?`;
+
 		try
 		{
-			if ( maxAgeDays > 0 )
-				return this.stmtSearchWithAge.all( sanitized, sessionId, `-${maxAgeDays} days`, limit ) as MemoryHit[];
-			return this.stmtSearchNoAge.all( sanitized, sessionId, limit ) as MemoryHit[];
+			return this.db.prepare( sql ).all( sanitized, sessionId, limit ) as MemoryHit[];
 		}
 		catch
 		{
@@ -354,8 +313,8 @@ class Storage
 		const count = this.countTurns( sessionId );
 		if ( count <= keep ) return 0;
 		const toDelete = count - keep;
-		const result = this.stmtPrune.run( sessionId, toDelete );
-		return result.changes;
+		this.stmtPrune.run( sessionId, toDelete );
+		return toDelete;
 	}
 }
 
@@ -366,38 +325,24 @@ class SessionState
 	lastMessageId: string | null = null;
 	lastRecallQuery: string | null = null;
 	turnCount = 0;
-	recallCount = 0;
-	hitCount = 0;
 }
 
 // ─── Pure helpers (NOT exported) ───────────────────────────────────────────
 
 function hashContent( role: string, content: string ): string
 {
-	return createHash( "sha1" ).update( role + ":" + content ).digest( "hex" );
+	return `${Bun.hash( role + ":" + content )}`;
 }
 
 function sessionHash( path: string ): string
 {
-	return createHash( "sha1" ).update( path ).digest( "hex" ).slice( 0, 16 );
-}
-
-function normalizeContent( raw: string | undefined ): string
-{
-	if ( !raw ) return "";
-	return raw
-		.replace( /<system-reminder>[\s\S]*?<\/system-reminder>/g, "" )
-		.replace( /<system>[\s\S]*?<\/system>/g, "" )
-		.toLowerCase()
-		.trim();
+	return Bun.hash( path ).toString( 36 );
 }
 
 function isRealUserMessage( text: string ): boolean
 {
-	if ( !text ) return false;
-	return !/^(Explore|Investigate|Analyze|Look|Read|Search|Find|Check|Plan)\b/i.test( text )
-		&& !text.startsWith( "<system-reminder>" )
-		&& !text.startsWith( "<system>" );
+	return text.length < 300
+		&& !/^(Explore|Investigate|Analyze|Look|Read|Search|Find|Check)\b/i.test( text );
 }
 
 function sanitizeFtsQuery( input: string ): string
@@ -405,16 +350,16 @@ function sanitizeFtsQuery( input: string ): string
 	if ( !input || typeof input !== "string" ) return "";
 
 	const terms = input
-		.toLowerCase()
-		.replace( /[^\w\sáéíóúüñÁÉÍÓÚÜÑ-]/g, "" )
-		.split( /[\s-]+/ )
+		.replace( /[^\w\sáéíóúüñÁÉÍÓÚÜÑ]/g, "" )
+		.split( /\s+/ )
 		.filter( t => t.length > 2 );
 
 	if ( terms.length === 0 ) return "";
-	return terms.map( t => `"${t}"` ).join( " OR " );
+	return terms.map( t => `"${t}"` ).join( " AND " );
 }
 
-const tokenCache = new Map<string, Set<string>>();
+/** Tokenize once, cache by string identity. */
+const tokenCache = new WeakMap<string, Set<string>>();
 
 function tokenize( s: string ): Set<string>
 {
@@ -422,14 +367,13 @@ function tokenize( s: string ): Set<string>
 	if ( tokens ) return tokens;
 
 	tokens = new Set(
-		s.toLowerCase()
-			.split( /[\s-]+/ )
-			.filter( w => w.length > 2 )
+		s.toLowerCase().split( /\s+/ ).filter( w => w.length > 2 )
 	);
 	tokenCache.set( s, tokens );
 	return tokens;
 }
 
+/** Jaccard overlap with early exit. */
 function contentOverlap( a: string, b: string ): number
 {
 	const setA = tokenize( a );
@@ -437,10 +381,12 @@ function contentOverlap( a: string, b: string ): number
 
 	if ( setA.size < 3 || setB.size < 3 ) return 0;
 
+	// Iterate the smaller set for early exit
 	const [ smaller, larger ] = setA.size <= setB.size
 		? [ setA, setB ] : [ setB, setA ];
 
 	let inter = 0;
+	const minInter = 0; // we need exact count for Jaccard
 	for ( const x of smaller )
 	{
 		if ( larger.has( x ) ) inter++;
@@ -448,14 +394,6 @@ function contentOverlap( a: string, b: string ): number
 
 	const union = setA.size + setB.size - inter;
 	return union === 0 ? 0 : inter / union;
-}
-
-function fingerprint( content: string ): string
-{
-	const tokens = tokenize( content );
-	const arr = [ ...tokens ].sort();
-	if ( arr.length === 0 ) return "";
-	return arr.slice( 0, 10 ).join( "|" );
 }
 
 function compressMemories(
@@ -467,14 +405,10 @@ function compressMemories(
 {
 	if ( hits.length === 0 ) return "";
 
+	// Dedup: skip hits that overlap >threshold with a higher-ranked one
 	const pick: MemoryHit[] = [];
-	const seenFingerprints = new Set<string>();
-
 	for ( const h of hits )
 	{
-		const fp = fingerprint( h.content );
-		if ( fp && seenFingerprints.has( fp ) ) continue;
-
 		let isDup = false;
 		for ( const p of pick )
 		{
@@ -484,12 +418,10 @@ function compressMemories(
 				break;
 			}
 		}
-		if ( isDup ) continue;
-
-		pick.push( h );
-		if ( fp ) seenFingerprints.add( fp );
+		if ( !isDup ) pick.push( h );
 	}
 
+	// Sort: assistant first, then by rank (lower rank = better match in FTS5)
 	pick.sort( ( a, b ) =>
 	{
 		if ( a.role !== b.role )
@@ -526,32 +458,10 @@ function compressMemories(
 function extractText( msg: MessageLike ): string
 {
 	return msg.parts
-		.filter( p =>
-			p.type === "text" &&
-			p.text &&
-			!p.text.startsWith( "<system-reminder>" ) &&
-			!p.text.startsWith( "<system>" )
-		)
+		.filter( p => p.type === "text" && p.text )
 		.map( p => p.text! )
 		.join( "\n" )
 		.trim();
-}
-
-function clampOptions( opts: typeof DEFAULTS ): typeof DEFAULTS
-{
-	return {
-		fts_results: Math.max( 1, Math.min( 50, opts.fts_results ) ),
-		keep: Math.max( 0, Math.min( 100000, opts.keep ) ),
-		max_tokens_memory: Math.max( 100, Math.min( 10000, opts.max_tokens_memory ) ),
-		max_age_days: Math.max( 0, Math.min( 3650, opts.max_age_days ) ),
-		log_level: opts.log_level,
-		prune_check_interval: Math.max( 1, Math.min( 1000, opts.prune_check_interval ) ),
-		overlap_threshold: Math.max( 0, Math.min( 1, opts.overlap_threshold ) ),
-		dedup_threshold: Math.max( 0, Math.min( 1, opts.dedup_threshold ) ),
-		recent_window: Math.max( 1, Math.min( 500, opts.recent_window ) ),
-		overlap_window: Math.max( 1, Math.min( 200, opts.overlap_window ) ),
-		max_snippet_chars: Math.max( 50, Math.min( 2000, opts.max_snippet_chars ) ),
-	};
 }
 
 function loadConfigFromFile(): DeepMemoryOptions
@@ -562,18 +472,17 @@ function loadConfigFromFile(): DeepMemoryOptions
 	{
 		const raw = JSON.parse( readFileSync( CONFIG_FILE, "utf-8" ) );
 		const cfg: DeepMemoryOptions = {};
-		if ( typeof raw.fts_results === "number" ) cfg.fts_results = raw.fts_results;
-		if ( typeof raw.keep === "number" ) cfg.keep = raw.keep;
-		if ( typeof raw.max_tokens_memory === "number" ) cfg.max_tokens_memory = raw.max_tokens_memory;
-		if ( typeof raw.max_age_days === "number" ) cfg.max_age_days = raw.max_age_days;
-		if ( raw.log_level === "silent" || raw.log_level === "info" || raw.log_level === "debug" )
-			cfg.log_level = raw.log_level;
-		if ( typeof raw.prune_check_interval === "number" ) cfg.prune_check_interval = raw.prune_check_interval;
-		if ( typeof raw.overlap_threshold === "number" ) cfg.overlap_threshold = raw.overlap_threshold;
-		if ( typeof raw.dedup_threshold === "number" ) cfg.dedup_threshold = raw.dedup_threshold;
-		if ( typeof raw.recent_window === "number" ) cfg.recent_window = raw.recent_window;
-		if ( typeof raw.overlap_window === "number" ) cfg.overlap_window = raw.overlap_window;
-		if ( typeof raw.max_snippet_chars === "number" ) cfg.max_snippet_chars = raw.max_snippet_chars;
+		if ( raw.fts_results !== undefined ) cfg.fts_results = raw.fts_results;
+		if ( raw.keep !== undefined ) cfg.keep = raw.keep;
+		if ( raw.max_tokens_memory !== undefined ) cfg.max_tokens_memory = raw.max_tokens_memory;
+		if ( raw.max_age_days !== undefined ) cfg.max_age_days = raw.max_age_days;
+		if ( raw.log_level !== undefined ) cfg.log_level = raw.log_level;
+		if ( raw.prune_check_interval !== undefined ) cfg.prune_check_interval = raw.prune_check_interval;
+		if ( raw.overlap_threshold !== undefined ) cfg.overlap_threshold = raw.overlap_threshold;
+		if ( raw.dedup_threshold !== undefined ) cfg.dedup_threshold = raw.dedup_threshold;
+		if ( raw.recent_window !== undefined ) cfg.recent_window = raw.recent_window;
+		if ( raw.overlap_window !== undefined ) cfg.overlap_window = raw.overlap_window;
+		if ( raw.max_snippet_chars !== undefined ) cfg.max_snippet_chars = raw.max_snippet_chars;
 		return cfg;
 	}
 	catch
@@ -599,7 +508,7 @@ function mergeOptions(
 			fromRaw.log_level = r.log_level;
 	}
 
-	return clampOptions( { ...DEFAULTS, ...fileCfg, ...fromRaw } );
+	return { ...DEFAULTS, ...fileCfg, ...fromRaw };
 }
 
 // ─── Plugin (ONLY default export) ──────────────────────────────────────────
@@ -614,14 +523,11 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	const sessionKey = ctx.worktree || ctx.directory || "default";
 	const sessionId = sessionHash( sessionKey );
 
-	const onExit = () =>
-	{
-		logger.dispose();
-		storage.close();
-	};
-	process.once( "exit", onExit );
+	// Backup shutdown handler in case opencode doesn't call dispose
+	const onExit = () => storage.close();
+	process.on( "exit", onExit );
 
-	logger.log( "info", `Initialized | session: ${sessionId} | worktree: ${sessionKey} | v1.0.3` );
+	logger.log( "info", `Initialized | session: ${sessionId} | worktree: ${sessionKey}` );
 
 	return {
 		"experimental.chat.messages.transform": async ( _input, output ) =>
@@ -630,6 +536,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			{
 				if ( !output.messages?.length ) return;
 
+				// Only process messages newer than the last seen one
 				const pairs: Array<{ role: "user" | "assistant"; text: string }> = [];
 				let newestId: string | null = state.lastMessageId;
 
@@ -650,6 +557,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 
 				logger.log( "info", "Stored:", stored, "turns | total:", state.turnCount );
 
+				// Throttled pruning: only check periodically
 				if (
 					opts.keep > 0 &&
 					state.turnCount % opts.prune_check_interval === 0
@@ -670,9 +578,13 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 		{
 			try
 			{
+				logger.log( "debug", "[DEBUG-a4f2] step=enter opts.recent_window=", opts.recent_window, "type=", typeof opts.recent_window );
 				if ( !output.system ) output.system = [];
 
+				// Single recent-turns query, reused for both query selection and overlap filter
+				logger.log( "debug", "[DEBUG-a4f2] step=before-getRecentTurns sessionId=", sessionId, "type=", typeof sessionId );
 				const recent = storage.getRecentTurns( sessionId, opts.recent_window );
+				logger.log( "debug", "[DEBUG-a4f2] step=after-getRecentTurns count=", recent.length );
 				if ( recent.length === 0 )
 				{
 					logger.log( "debug", "Skip: no turns stored yet" );
@@ -682,6 +594,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				const lastRealUser = recent.find(
 					t => t.role === "user" && isRealUserMessage( t.content )
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-findRealUser found=", !!lastRealUser );
 				if ( !lastRealUser )
 				{
 					logger.log( "debug", "Skip: no real user message" );
@@ -689,32 +602,34 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				}
 
 				const query = lastRealUser.content.trim();
+				logger.log( "debug", "[DEBUG-a4f2] step=after-trim queryLen=", query.length );
 				if ( query.length < 3 )
 				{
 					logger.log( "debug", "Skip: query too short" );
 					return;
 				}
 
+				// Skip if same query as last recall (avoid redundant work)
 				if ( state.lastRecallQuery === query )
 				{
 					logger.log( "debug", "Skip: same query as last recall" );
 					return;
 				}
 
-				state.recallCount++;
+				logger.log( "debug", "[DEBUG-a4f2] step=before-searchMemories fts_results=", opts.fts_results, "max_age_days=", opts.max_age_days );
 				const hits = storage.searchMemories(
 					query, sessionId, opts.fts_results, opts.max_age_days
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-searchMemories hits=", hits.length );
 
 				if ( hits.length === 0 )
 				{
-					logger.log( "debug", "Recall: 0 — no FTS matches | queryLen=", query.length );
+					logger.log( "debug", "Recall: 0 — no FTS matches" );
 					state.lastRecallQuery = query;
 					return;
 				}
 
-				state.hitCount += hits.length;
-
+				// Filter out hits overlapping with recent conversation
 				const overlapWindow = recent.slice( 0, opts.overlap_window );
 				const filteredHits = hits.filter( hit =>
 				{
@@ -725,10 +640,11 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					}
 					return true;
 				} );
+				logger.log( "debug", "[DEBUG-a4f2] step=after-overlapFilter filtered=", filteredHits.length );
 
 				if ( filteredHits.length === 0 )
 				{
-					logger.log( "debug", "Recall: 0 — excluded by overlap (", hits.length, "hits)" );
+					logger.log( "debug", "Recall: 0 — excluded by overlap (", hits.length, "hits )" );
 					state.lastRecallQuery = query;
 					return;
 				}
@@ -739,6 +655,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					opts.dedup_threshold,
 					opts.max_snippet_chars
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-compress contextLen=", context.length );
 				if ( !context )
 				{
 					logger.log( "debug", "Skip: context empty after compression" );
@@ -746,13 +663,14 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					return;
 				}
 
-				logger.log( "info", "Recall:", filteredHits.length, "memories (", context.length, "chars) | total recalls:", state.recallCount, "hits:", state.hitCount );
+				logger.log( "info", "Recall:", filteredHits.length, "memories (", context.length, "chars )" );
 				output.system.push( `[Memory Recall]\n${context}` );
 				state.lastRecallQuery = query;
+				logger.log( "debug", "[DEBUG-a4f2] step=exit-success" );
 			}
 			catch ( err )
 			{
-				logger.log( "error", "system.transform:", ( err as Error ).message );
+				logger.log( "error", "system.transform:", ( err as Error ).message, "stack=", ( err as Error ).stack );
 			}
 		},
 
@@ -760,7 +678,6 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 		{
 			process.removeListener( "exit", onExit );
 			storage.close();
-			logger.dispose();
 			logger.log( "info", "Disposed | session:", sessionId );
 		},
 	};
