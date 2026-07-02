@@ -26,7 +26,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.7
+ *	@version 1.0.9
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -191,7 +191,7 @@ class Storage
 	{
 		this.db = db;
 		this.stmtInsert = db.prepare(
-			"INSERT OR IGNORE INTO turns (session_id, role, content, content_hash) VALUES (?, ?, ?, ?)"
+			"INSERT OR IGNORE INTO turns (session_id, role, content, content_hash, kind) VALUES (?, ?, ?, ?, ?)"
 		);
 		this.stmtCount = db.prepare(
 			"SELECT COUNT(*) as c FROM turns WHERE session_id = ?"
@@ -201,16 +201,18 @@ class Storage
 		);
 		this.stmtSearchNoAge = db.prepare(
 			`SELECT t.id, t.role, t.content, t.created_at,
-			        rank * CASE WHEN t.role = 'user' THEN 2.0 ELSE 1.0 END AS rank
+			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END
+			             * (1.0 + MAX(0.0, 1.0 - (julianday('now') - julianday(t.created_at)) / 30.0)) AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
-			 WHERE turns_fts MATCH ? AND t.session_id = ?
+			 WHERE turns_fts MATCH ? AND t.session_id = ? AND t.kind = 'fact'
 			 ORDER BY rank LIMIT ?`
 		);
 		this.stmtSearchWithAge = db.prepare(
 			`SELECT t.id, t.role, t.content, t.created_at,
-			        rank * CASE WHEN t.role = 'user' THEN 2.0 ELSE 1.0 END AS rank
+			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END
+			             * (1.0 + MAX(0.0, 1.0 - (julianday('now') - julianday(t.created_at)) / 30.0)) AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
-			 WHERE turns_fts MATCH ? AND t.session_id = ?
+			 WHERE turns_fts MATCH ? AND t.session_id = ? AND t.kind = 'fact'
 			   AND t.created_at >= datetime('now', ?)
 			 ORDER BY rank LIMIT ?`
 		);
@@ -245,7 +247,7 @@ class Storage
 			PRAGMA auto_vacuum          = OFF;
 			PRAGMA threads              = 4;
 			PRAGMA busy_timeout         = 5000;
-			PRAGMA user_version         = 2;
+			PRAGMA user_version         = 3;
 		` );
 
 		db.exec( `
@@ -255,12 +257,15 @@ class Storage
 				role TEXT NOT NULL CHECK(role IN ('user','assistant')),
 				content TEXT NOT NULL,
 				content_hash TEXT NOT NULL,
+				kind TEXT NOT NULL DEFAULT 'meta' CHECK(kind IN ('fact','question','meta')),
 				created_at TEXT NOT NULL DEFAULT (datetime('now'))
 			);
 			CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_dedup
 				ON turns(session_id, content_hash);
 			CREATE INDEX IF NOT EXISTS idx_turns_session_created
 				ON turns(session_id, created_at);
+			CREATE INDEX IF NOT EXISTS idx_turns_session_kind
+				ON turns(session_id, kind);
 			CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(
 				content, content='turns', content_rowid='id',
 				tokenize="unicode61 remove_diacritics 1"
@@ -278,6 +283,8 @@ class Storage
 		` );
 
 		try { db.run( "INSERT INTO turns_fts(turns_fts) VALUES('rebuild')" ); } catch {}
+
+		try { db.exec( "ALTER TABLE turns ADD COLUMN kind TEXT NOT NULL DEFAULT 'meta'" ); } catch {}
 
 		return new Storage( db );
 	}
@@ -308,8 +315,9 @@ class Storage
 			{
 				const text = normalizeContent( m.text );
 				if ( !text ) continue;
+				const kind = classifyTurn( text );
 				const result = this.stmtInsert.run(
-					sessionId, m.role, text, hashContent( m.role, text )
+					sessionId, m.role, text, hashContent( m.role, text ), kind
 				);
 				if ( result.changes > 0 ) count++;
 			}
@@ -394,6 +402,26 @@ function normalizeContent( raw: string | undefined ): string
 		.trim();
 }
 
+function classifyTurn( text: string ): "fact" | "question" | "meta"
+{
+	const t = text.trim();
+	if ( !t ) return "meta";
+
+	if ( t.endsWith( "?" ) ) return "question";
+
+	if ( /^(quien|que|como|cuando|donde|por que|cual|quienes|cuales)\b/i.test( t ) )
+		return "question";
+
+	if (
+		t.length < 200 &&
+		/\b(es|son|tiene|tienen|era|eran|fue|fueron)\b/.test( t ) &&
+		!/\b(quien|que|cual|cuando|donde)\b/i.test( t )
+	)
+		return "fact";
+
+	return "meta";
+}
+
 function isRealUserMessage( text: string ): boolean
 {
 	if ( !text ) return false;
@@ -401,6 +429,21 @@ function isRealUserMessage( text: string ): boolean
 		&& !text.startsWith( "<system-reminder>" )
 		&& !text.startsWith( "<system>" );
 }
+
+const STOP_WORDS = new Set( [
+	"quien", "que", "como", "cuando", "donde", "porque", "aunque",
+	"para", "por", "con", "sin", "sobre", "entre", "desde", "hasta",
+	"una", "uno", "unos", "unas", "los", "las", "del", "al",
+	"ser", "estar", "sido", "siendo", "es", "son", "fue", "era",
+	"esta", "este", "esto", "esa", "ese", "eso", "estos", "estas",
+	"esos", "esas", "hay", "tiene", "tienen", "tengo", "tenemos",
+	"hacer", "hace", "hacen", "hago", "hizo", "hecho",
+	"saber", "sabe", "saben", "se", "me", "te", "le", "lo", "la", "el",
+	"puede", "pueden", "puedo", "podemos", "debe", "deben", "debo",
+	"muy", "mas", "menos", "tan", "todo", "toda", "todos", "todas",
+	"otro", "otra", "otros", "otras", "mismo", "misma", "mismos", "mismas",
+	"si", "no", "ya", "aun", "todavia", "solo", "tambien", "pero"
+] );
 
 function sanitizeFtsQuery( input: string ): string
 {
@@ -410,7 +453,7 @@ function sanitizeFtsQuery( input: string ): string
 		.toLowerCase()
 		.replace( /[^\w\sáéíóúüñÁÉÍÓÚÜÑ-]/g, "" )
 		.split( /[\s-]+/ )
-		.filter( t => t.length > 2 );
+		.filter( t => t.length > 2 && !STOP_WORDS.has( t ) );
 
 	if ( terms.length === 0 ) return "";
 	return terms.map( t => `"${t}"` ).join( " OR " );
@@ -744,7 +787,11 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				}
 
 				logger.log( "info", `Recall: ${filteredHits.length} memories (${context.length} chars) | total recalls: ${state.recallCount} hits: ${state.hitCount}` );
-				output.system.push( `[Memory Recall]\n${context}` );
+				const recallBlock = `[Memory Recall]\n${context}`;
+				if ( output.system.length > 0 )
+					output.system[ 0 ] = output.system[ 0 ] + "\n\n" + recallBlock;
+				else
+					output.system.push( recallBlock );
 				state.lastRecallQuery = query;
 			}
 			catch ( err )
