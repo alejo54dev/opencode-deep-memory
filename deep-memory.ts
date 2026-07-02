@@ -25,9 +25,9 @@
 *		"max_snippet_chars": 250
 *	}
 *
-*	@name deep-memory
- *	@version 1.0.9
-*	@author Alejandro Carraretto
+ *	@name deep-memory
+ *	@version 1.0.10
+ *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
 */
@@ -414,7 +414,7 @@ function classifyTurn( text: string ): "fact" | "question" | "meta"
 
 	if (
 		t.length < 200 &&
-		/\b(es|son|tiene|tienen|era|eran|fue|fueron)\b/.test( t ) &&
+		/\b(es|son|tengo|tenemos|tiene|tienen|era|eran|fue|fueron|trabajo|trabajamos|trabaja|trabajan|vivo|vivimos|vive|viven|prefiero|prefieres|prefiere|gusta|gustan)\b/.test( t ) &&
 		!/\b(quien|que|cual|cuando|donde)\b/i.test( t )
 	)
 		return "fact";
