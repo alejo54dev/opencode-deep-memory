@@ -16,7 +16,6 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 ```
 deep-memory/
 ├── deep-memory.ts          # source (single file, ~770 lines)
-├── deep-memory.ts.v1.bak   # v1.0.1 backup (do not delete)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
@@ -76,7 +75,6 @@ rm ~/.config/opencode/deep-memory.log
 
 ## Do not
 
-- Do not delete `deep-memory.ts.v1.bak` (rollback reference).
 - Do not bump major version without explicit user request.
 - Do not push without explicit user request.
 - Do not modify `~/.config/opencode/storage/deep-memory.db` directly — use the plugin.
