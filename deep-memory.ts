@@ -1,10 +1,45 @@
+/**
+*	deep-memory.ts
+*
+*	OpenCode plugin — persistent long-term memory via SQLite FTS5.
+*	Stores conversation turns, recalls relevant context on each turn,
+*	prunes old entries, deduplicates near-duplicates.
+*
+*	Install: cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
+*	Storage: ~/.config/opencode/storage/deep-memory.db
+*	Config:  ~/.config/opencode/deep-memory.json
+*	Log:     ~/.config/opencode/deep-memory.log
+*
+*	@example ~/.config/opencode/deep-memory.json
+*	{
+*		"fts_results": 5,
+*		"keep": 500,
+*		"max_tokens_memory": 1500,
+*		"max_age_days": 0,
+*		"log_level": "info",
+*		"prune_check_interval": 10,
+*		"overlap_threshold": 0.4,
+*		"dedup_threshold": 0.5,
+*		"recent_window": 30,
+*		"overlap_window": 15,
+*		"max_snippet_chars": 250
+*	}
+*
+*	@name deep-memory
+*	@version 1.0.1
+*	@author Alejandro Carraretto
+*	@author MiniMax-M3
+*	@license MIT
+*/
+
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────
 
-const HOME = process.env.HOME || "/tmp";
+const HOME = process.env.HOME || homedir();
 const CONFIG_DIR = `${HOME}/.config/opencode`;
 const STORAGE_DIR = `${CONFIG_DIR}/storage`;
 const DB_PATH = `${STORAGE_DIR}/deep-memory.db`;
@@ -436,19 +471,19 @@ function loadConfigFromFile(): DeepMemoryOptions
 	try
 	{
 		const raw = JSON.parse( readFileSync( CONFIG_FILE, "utf-8" ) );
-		return {
-			fts_results: raw.fts_results,
-			keep: raw.keep,
-			max_tokens_memory: raw.max_tokens_memory,
-			max_age_days: raw.max_age_days,
-			log_level: raw.log_level,
-			prune_check_interval: raw.prune_check_interval,
-			overlap_threshold: raw.overlap_threshold,
-			dedup_threshold: raw.dedup_threshold,
-			recent_window: raw.recent_window,
-			overlap_window: raw.overlap_window,
-			max_snippet_chars: raw.max_snippet_chars,
-		};
+		const cfg: DeepMemoryOptions = {};
+		if ( raw.fts_results !== undefined ) cfg.fts_results = raw.fts_results;
+		if ( raw.keep !== undefined ) cfg.keep = raw.keep;
+		if ( raw.max_tokens_memory !== undefined ) cfg.max_tokens_memory = raw.max_tokens_memory;
+		if ( raw.max_age_days !== undefined ) cfg.max_age_days = raw.max_age_days;
+		if ( raw.log_level !== undefined ) cfg.log_level = raw.log_level;
+		if ( raw.prune_check_interval !== undefined ) cfg.prune_check_interval = raw.prune_check_interval;
+		if ( raw.overlap_threshold !== undefined ) cfg.overlap_threshold = raw.overlap_threshold;
+		if ( raw.dedup_threshold !== undefined ) cfg.dedup_threshold = raw.dedup_threshold;
+		if ( raw.recent_window !== undefined ) cfg.recent_window = raw.recent_window;
+		if ( raw.overlap_window !== undefined ) cfg.overlap_window = raw.overlap_window;
+		if ( raw.max_snippet_chars !== undefined ) cfg.max_snippet_chars = raw.max_snippet_chars;
+		return cfg;
 	}
 	catch
 	{
@@ -543,10 +578,13 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 		{
 			try
 			{
+				logger.log( "debug", "[DEBUG-a4f2] step=enter opts.recent_window=", opts.recent_window, "type=", typeof opts.recent_window );
 				if ( !output.system ) output.system = [];
 
 				// Single recent-turns query, reused for both query selection and overlap filter
+				logger.log( "debug", "[DEBUG-a4f2] step=before-getRecentTurns sessionId=", sessionId, "type=", typeof sessionId );
 				const recent = storage.getRecentTurns( sessionId, opts.recent_window );
+				logger.log( "debug", "[DEBUG-a4f2] step=after-getRecentTurns count=", recent.length );
 				if ( recent.length === 0 )
 				{
 					logger.log( "debug", "Skip: no turns stored yet" );
@@ -556,6 +594,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				const lastRealUser = recent.find(
 					t => t.role === "user" && isRealUserMessage( t.content )
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-findRealUser found=", !!lastRealUser );
 				if ( !lastRealUser )
 				{
 					logger.log( "debug", "Skip: no real user message" );
@@ -563,6 +602,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				}
 
 				const query = lastRealUser.content.trim();
+				logger.log( "debug", "[DEBUG-a4f2] step=after-trim queryLen=", query.length );
 				if ( query.length < 3 )
 				{
 					logger.log( "debug", "Skip: query too short" );
@@ -576,9 +616,11 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					return;
 				}
 
+				logger.log( "debug", "[DEBUG-a4f2] step=before-searchMemories fts_results=", opts.fts_results, "max_age_days=", opts.max_age_days );
 				const hits = storage.searchMemories(
 					query, sessionId, opts.fts_results, opts.max_age_days
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-searchMemories hits=", hits.length );
 
 				if ( hits.length === 0 )
 				{
@@ -598,6 +640,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					}
 					return true;
 				} );
+				logger.log( "debug", "[DEBUG-a4f2] step=after-overlapFilter filtered=", filteredHits.length );
 
 				if ( filteredHits.length === 0 )
 				{
@@ -612,6 +655,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					opts.dedup_threshold,
 					opts.max_snippet_chars
 				);
+				logger.log( "debug", "[DEBUG-a4f2] step=after-compress contextLen=", context.length );
 				if ( !context )
 				{
 					logger.log( "debug", "Skip: context empty after compression" );
@@ -622,10 +666,11 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				logger.log( "info", "Recall:", filteredHits.length, "memories (", context.length, "chars )" );
 				output.system.push( `[Memory Recall]\n${context}` );
 				state.lastRecallQuery = query;
+				logger.log( "debug", "[DEBUG-a4f2] step=exit-success" );
 			}
 			catch ( err )
 			{
-				logger.log( "error", "system.transform:", ( err as Error ).message );
+				logger.log( "error", "system.transform:", ( err as Error ).message, "stack=", ( err as Error ).stack );
 			}
 		},
 
