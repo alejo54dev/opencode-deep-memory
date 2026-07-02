@@ -19,6 +19,8 @@ cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 | Config | `~/.config/opencode/deep-memory.json` |
 | Log | `~/.config/opencode/deep-memory.log` |
 
+Plugin lives ONLY in `plugins/`. Do not copy to `~/.config/opencode/` root.
+
 ## Config
 
 `~/.config/opencode/deep-memory.json`:

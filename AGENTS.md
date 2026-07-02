@@ -26,10 +26,9 @@ deep-memory/
 
 ```bash
 cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
-cp deep-memory.ts ~/.config/opencode/deep-memory.ts
 ```
 
-Both locations are kept in sync. The `plugins/` location is the canonical load path.
+Only `plugins/` is the canonical load path. Do NOT copy to `~/.config/opencode/` root.
 
 ## Verify
 
