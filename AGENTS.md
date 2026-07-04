@@ -15,7 +15,7 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 
 ```
 deep-memory/
-├── deep-memory.ts          # source (single file, ~586 lines)
+├── deep-memory.ts          # source (single file, 582 lines)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
