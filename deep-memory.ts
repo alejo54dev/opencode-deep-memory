@@ -44,6 +44,38 @@ const LOG_FILE    = join( CONFIG_DIR, "deep-memory.log" ) ;
 const STORAGE_DIR = join( CONFIG_DIR, "storage" ) ;
 const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const CONFIG =
+{
+	fts_results:        20,
+	max_tokens_memory:  3000,
+	max_age_days:       3650,
+	log_level:          "info" as "silent" | "error" | "info" | "debug",
+	overlap_threshold:  0.5,
+	dedup_threshold:    0.6,
+	recent_window:      8,
+	overlap_window:     8,
+	max_snippet_chars:  250,
+};
+
+const LOG_LEVEL =
+{
+	SILENT : 0,
+	ERROR  : 1,
+	INFO   : 2,
+	DEBUG  : 3,
+} as const ;
+
+const STRIP_PATTERNS =
+[
+	/[\s\S]*?<\/dcp-message-id>/g,
+	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
+	/<system>[\s\S]*?<\/system>/g,
+	/<thinking>[\s\S]*?<\/thinking>/g,
+	/<tool_result>[\s\S]*?<\/tool_result>/g,
+];
+
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 function loadConfig()
@@ -79,38 +111,6 @@ function loadConfig()
 
 	return opts;
 }
-
-// ─── Constants ─────────────────────────────────────────────────────────────
-
-const CONFIG =
-{
-	fts_results:        20,
-	max_tokens_memory:  3000,
-	max_age_days:       3650,
-	log_level:          "info" as "silent" | "error" | "info" | "debug",
-	overlap_threshold:  0.5,
-	dedup_threshold:    0.6,
-	recent_window:      8,
-	overlap_window:     8,
-	max_snippet_chars:  250,
-};
-
-const LOG_LEVEL =
-{
-	SILENT : 0,
-	ERROR  : 1,
-	INFO   : 2,
-	DEBUG  : 3,
-} as const ;
-
-const STRIP_PATTERNS =
-[
-	/[\s\S]*?<\/dcp-message-id>/g,
-	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
-	/<system>[\s\S]*?<\/system>/g,
-	/<thinking>[\s\S]*?<\/thinking>/g,
-	/<tool_result>[\s\S]*?<\/tool_result>/g,
-];
 
 // ─── Logger ────────────────────────────────────────────────────────────────
 
