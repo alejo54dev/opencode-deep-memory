@@ -12,18 +12,17 @@
 *	@example ~/.config/opencode/deep-memory.json
 *	{
 *		"fts_results": 20,
-*		"max_tokens_memory": 3000,
-*		"max_age_days": 3650,       // 0 = forever
-*		"log_level": "info",        // "silent" | "error" | "info" | "debug"
+*		"max_tokens_memory": 2000,
+*		"max_age_days": 3000,       // 0 = forever
 *		"overlap_threshold": 0.5,
 *		"dedup_threshold": 0.6,
-*		"recent_window": 8,
 *		"overlap_window": 8,
-*		"max_snippet_chars": 250
+*		"max_snippet_chars": 250,
+*		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.23
+*	@version 1.0.24
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -49,13 +48,13 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 const CONFIG =
 {
 	fts_results:        20,
-	max_tokens_memory:  3000,
-	max_age_days:       3650,
-	log_level:          "info" as "silent" | "error" | "info" | "debug",
+	max_tokens_memory:  2000,
+	max_age_days:       3000,
 	overlap_threshold:  0.5,
 	dedup_threshold:    0.6,
 	overlap_window:     8,
 	max_snippet_chars:  250,
+	log_level:          "info" as "silent" | "error" | "info" | "debug",
 };
 
 const LOG_LEVEL =
@@ -124,11 +123,11 @@ function loadConfig()
 		fts_results:        Math.max( 1,  file.fts_results        ?? CONFIG.fts_results       ),
 		max_tokens_memory:  Math.max( 100, file.max_tokens_memory ?? CONFIG.max_tokens_memory ),
 		max_age_days:       Math.max( 0,  file.max_age_days       ?? CONFIG.max_age_days      ),
-		log_level:          file.log_level                        ?? CONFIG.log_level          ,
 		overlap_threshold:  Math.max( 0,  file.overlap_threshold  ?? CONFIG.overlap_threshold ),
 		dedup_threshold:    Math.max( 0,  file.dedup_threshold    ?? CONFIG.dedup_threshold   ),
 		overlap_window:     Math.max( 1,  file.overlap_window     ?? CONFIG.overlap_window    ),
 		max_snippet_chars:  Math.max( 50, file.max_snippet_chars  ?? CONFIG.max_snippet_chars ),
+		log_level:          file.log_level                        ?? CONFIG.log_level          ,
 	} as typeof CONFIG;
 
 	CONFIG.log_level = opts.log_level;
@@ -183,6 +182,7 @@ class Storage
 			             * (1.0 + MAX(0.0, 1.0 - (julianday('now') - julianday(t.created_at)) / 30.0)) AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
 			 WHERE turns_fts MATCH ?
+			   AND (? = 0 OR julianday('now') - julianday(t.created_at) <= ?)
 			 ORDER BY rank LIMIT ?`
 		);
 		this.stmtNextTurn = db.prepare(
@@ -303,7 +303,7 @@ class Storage
 
 		try
 		{
-			const hits = this.stmtSearch.all( sanitized, limit ) as MemoryHit[];
+			const hits = this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[];
 
 			// Expand user hits with their following assistant response
 			const expanded: MemoryHit[] = [];
@@ -328,10 +328,7 @@ class Storage
 				}
 			}
 
-			if ( maxAgeDays <= 0 ) return expanded;
-
-			const cutoff = Date.now() - maxAgeDays * 86400 * 1000;
-			return expanded.filter( h => new Date( h.created_at ).getTime() >= cutoff );
+			return expanded;
 		}
 		catch
 		{
@@ -507,7 +504,7 @@ export default ( async ( ctx: PluginInput ) =>
 						if ( hits.length === 0 )
 							return "<deep-memory>\n(no matches found)\n</deep-memory>";
 
-						const overlapWindow = recent.slice( 0, opts.overlap_window );
+						const overlapWindow = recent;
 						const filteredHits = hits.filter( hit =>
 						{
 							for ( const turn of overlapWindow )

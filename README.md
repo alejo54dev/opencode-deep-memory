@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.22-blue)
+![Version](https://img.shields.io/badge/version-1.0.24-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -41,7 +41,7 @@ flowchart TD
 
 ## 🏗️ Philosophy: stack-first
 
-Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pruning. FTS searches the whole DB (`fts_results: 20`) and injects up to `max_tokens_memory: 3000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pruning. FTS searches the whole DB (`fts_results: 20`) and injects up to `max_tokens_memory: 2000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
 
 ## 🚀 Build
 
@@ -62,8 +62,8 @@ cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 ```json
 {
 	"fts_results": 20,
-	"max_tokens_memory": 3000,
-	"max_age_days": 3650,
+	"max_tokens_memory": 2000,
+	"max_age_days": 3000,
 	"log_level": "info",
 	"overlap_threshold": 0.5,
 	"dedup_threshold": 0.6,
@@ -75,8 +75,8 @@ cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 | Field | Default | Description |
 |---|---|---|
 | `fts_results` | `20` | Max FTS results per search |
-| `max_tokens_memory` | `3000` | Token budget for compressed context |
-| `max_age_days` | `3650` | Max age of recalled memories (`0` = forever) |
+| `max_tokens_memory` | `2000` | Token budget for compressed context |
+| `max_age_days` | `3000` | Max age of recalled memories (`0` = forever) |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 | `overlap_threshold` | `0.5` | Jaccard similarity threshold for overlap filter |
 | `dedup_threshold` | `0.6` | Jaccard similarity threshold for dedup within recall |
@@ -94,4 +94,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.22
+MIT — version 1.0.24
