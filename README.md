@@ -17,35 +17,27 @@
 
 ## 🔄 How it works
 
-```
-                    Message arrives
-                          │
-                          ▼
-             ┌──────────────────────────┐
-             │  ① Store turn in SQLite   │
-             │  (dedup by session+hash)  │
-             └──────────┬───────────────┘
-                        │
-                   Model calls tool
-                        │
-                        ▼
-             ┌──────────────────────────┐
-             │  ② FTS5 search           │
-             │     cross-session        │
-             │  ③ Pair recall           │
-             │  ④ Age / Overlap filter  │
-             │  ⑤ Dedup + Token budget  │
-             └──────────┬───────────────┘
-                        │
-                        ▼
-             ┌──────────────────────────┐
-             │  <deep-memory> injected   │
-             │  into context             │
-             └──────────────────────────┘
+```mermaid
+flowchart TD
+    A["📥 Message arrives"] --> B["💾 Store turn in SQLite<br/>(dedup by session+hash)"]
+    B --> C{"🧠 Model calls<br/>deep_memory_recall"}
+    C --> D["🔍 FTS5 search<br/>(cross-session)"]
+    D --> E["🔗 Pair recall"]
+    E --> F["⏳ Age / Overlap filter"]
+    F --> G["🎯 Dedup + Token budget"]
+    G --> H["📎 &lt;deep-memory&gt; injected<br/>into context"]
 
-             (reminder appended via
-              system.transform each turn)
+    style A fill:#1a1a2e,stroke:#e94560,color:#fff
+    style B fill:#16213e,stroke:#0f3460,color:#fff
+    style C fill:#16213e,stroke:#e94560,color:#fff
+    style D fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E fill:#0f3460,stroke:#53a8b6,color:#fff
+    style F fill:#0f3460,stroke:#53a8b6,color:#fff
+    style G fill:#0f3460,stroke:#53a8b6,color:#fff
+    style H fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
+
+> The `system.transform` hook appends a `deep_memory_recall()` reminder each turn.
 
 ## 🏗️ Philosophy: stack-first
 
