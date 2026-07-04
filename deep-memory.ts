@@ -104,6 +104,7 @@ interface MessageLike
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
+// Load config from ~/.config/opencode/deep-memory.json, fall back to defaults
 function loadConfig()
 {
 	let file : Record<string, unknown> = {};
@@ -140,6 +141,7 @@ function loadConfig()
 
 // ─── Logger ────────────────────────────────────────────────────────────────
 
+// Append timestamped entry to ~/.config/opencode/deep-memory.log
 function log( level : number, message : string ) : void
 {
 	const min = LOG_LEVEL[ ( CONFIG.log_level ?? "info" ).toUpperCase() ] ?? LOG_LEVEL.ERROR ;
@@ -167,6 +169,7 @@ class Storage
 	private stmtSearch: ReturnType<Database["prepare"]>;
 	private stmtNextTurn: ReturnType<Database["prepare"]>;
 
+	// Prepare prepared statements: insert, recent, search (ranked), next-turn lookup
 	private constructor( db: Database )
 	{
 		this.db = db;
@@ -190,6 +193,7 @@ class Storage
 		);
 	}
 
+	// Open or create the SQLite DB with WAL pragmas and v4 schema (turns + FTS5 + triggers)
 	static open(): Storage
 	{
 		if ( !existsSync( STORAGE_DIR ) )
@@ -247,7 +251,7 @@ class Storage
 		return new Storage( db );
 	}
 
-	// Closes the DB with a WAL checkpoint; safe to call multiple times
+	// Close the DB with a WAL checkpoint; safe to call multiple times
 	close(): void
 	{
 		try
@@ -258,7 +262,7 @@ class Storage
 		catch { /* already closed */ }
 	}
 
-	// Store a batch of turns; dedup via unique index on (session_id, content_hash)
+	// Store messages in a transaction; dedup via unique index on (session_id, content_hash)
 	storeTurns(
 		sessionId: string,
 		messages: Array<{ role: "user" | "assistant"; text: string }>
@@ -283,14 +287,14 @@ class Storage
 		return count;
 	}
 
-	// Fetch the most recent turns for a session, newest first
+	// Fetch the most recent turns for a session, newest first (used for overlap filtering)
 	getRecentTurns( sessionId: string, limit: number ): TurnRow[]
 	{
 		return this.stmtRecent.all( sessionId, limit ) as TurnRow[];
 	}
 
-	// FTS5 search across the entire store, ranked by relevance × role weight × recency.
-	// Expands matches with assistant responses following matching user turns (pair recall).
+	// FTS5 search, ranked by relevance × role weight (user=3x) × recency decay (30-day half-life)
+	// Expands user hits with their following assistant response (pair recall)
 	searchMemories(
 		query: string,
 		limit: number,
@@ -341,19 +345,19 @@ class Storage
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// SHA-1 hex of role + content — used as dedup key
+// SHA-1 hex of role + content — dedup key for storeTurns
 function hashContent( role: string, content: string ): string
 {
 	return createHash( "sha1" ).update( role + ":" + content ).digest( "hex" );
 }
 
-// SHA-1 hex truncated to 16 chars of username + cwd — portable session identifier
+// SHA-1 hex (16 chars) of username + cwd — deterministic session identifier across restarts
 function sessionHash( path: string ): string
 {
 	return createHash( "sha1" ).update( path ).digest( "hex" ).slice( 0, 16 );
 }
 
-// Strip DCP/system tags and normalize to lowercase for consistent FTS indexing
+// Strip DCP/system/thinking/tool tags and normalize to lowercase for FTS indexing
 function normalizeContent( raw: string | undefined ): string
 {
 	if ( !raw ) return "";
@@ -363,7 +367,7 @@ function normalizeContent( raw: string | undefined ): string
 	return text.toLowerCase().trim();
 }
 
-// Convert free-form text into a safe FTS5 OR-query, stripping common noise
+// Convert free-form text into a safe FTS5 OR-query (strips punctuation, keeps >2-char terms)
 function sanitizeFtsQuery( input: string ): string
 {
 	if ( !input || typeof input !== "string" ) return "";
@@ -378,8 +382,8 @@ function sanitizeFtsQuery( input: string ): string
 	return terms.map( t => `"${t}"*` ).join( " OR " );
 }
 
-// Jaccard similarity over word tokens — used for dedup and overlap filtering.
-// Returns 0 for very short texts (< 3 tokens) to avoid spurious matches.
+// Jaccard similarity over word tokens — used for dedup and overlap filtering
+// Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
 function contentOverlap( a: string, b: string ): number
 {
 	const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) );
@@ -400,8 +404,8 @@ function contentOverlap( a: string, b: string ): number
 	return union === 0 ? 0 : inter / union;
 }
 
-// Compress FTS hits into a token-budgeted context block, deduping near-duplicates.
-// Single-pass dedup: skip hits that overlap heavily with already-picked ones.
+// Compress FTS hits into a token-budgeted context block with single-pass dedup
+// Skips hits that overlap heavily with already-picked ones; sorts by rank descending
 function compressMemories(
 	hits: MemoryHit[],
 	maxTokens: number,
@@ -454,7 +458,7 @@ function compressMemories(
 	return parts.join( "\n" );
 }
 
-// Extract plain text from a message, filtering out ephemeral system-reminder noise
+// Extract plain text from a MessageLike, filtering out <system-reminder> noise
 function extractText( msg: MessageLike ): string
 {
 	return msg.parts
@@ -477,6 +481,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	const sessionKey = `${userInfo().username}:${ctx.directory || process.cwd()}`;
 	const sessionId = sessionHash( sessionKey );
 
+	// Cleanup handler: close DB on process exit
 	const onExit = () =>
 	{
 		storage.close();
@@ -487,6 +492,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 
 	return {
 		tool: {
+			// Tool: search long-term memory via FTS5, dedup against recent window, compress to token budget
 			deep_memory_recall: tool( {
 				description: "Search long-term memory using full-text search. Use this when you need to recall past conversation turns, decisions, or facts stored across all sessions.",
 				args: {
@@ -536,6 +542,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			} ),
 		},
 
+		// Hook: capture each turn and store in SQLite via storeTurns
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
 			try
@@ -561,11 +568,13 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			}
 		},
 
+		// Hook: inject system reminder about deep_memory_recall tool availability
 		"experimental.chat.system.transform": async ( _input, output ) =>
 		{
 			output.system.push( "[deep-memory active: use tool deep_memory_recall() to search long-term memory]" );
 		},
 
+		// Cleanup: remove exit listener, close DB with WAL checkpoint
 		dispose: async () =>
 		{
 			process.removeListener( "exit", onExit );
