@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.14
+ *	@version 1.0.15
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -116,6 +116,7 @@ class Storage
 	private stmtInsert: ReturnType<Database["prepare"]>;
 	private stmtRecent: ReturnType<Database["prepare"]>;
 	private stmtSearch: ReturnType<Database["prepare"]>;
+	private stmtNextTurn: ReturnType<Database["prepare"]>;
 
 	private constructor( db: Database )
 	{
@@ -132,8 +133,11 @@ class Storage
 			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END
 			             * (1.0 + MAX(0.0, 1.0 - (julianday('now') - julianday(t.created_at)) / 30.0)) AS rank
 			 FROM turns_fts JOIN turns t ON turns_fts.rowid = t.id
-			 WHERE turns_fts MATCH ? AND t.session_id = ?
+			 WHERE turns_fts MATCH ?
 			 ORDER BY rank LIMIT ?`
+		);
+		this.stmtNextTurn = db.prepare(
+			"SELECT id, role, content, created_at FROM turns WHERE id = ? + 1 AND role = 'assistant' LIMIT 1"
 		);
 	}
 
@@ -236,10 +240,10 @@ class Storage
 		return this.stmtRecent.all( sessionId, limit ) as TurnRow[];
 	}
 
-	// FTS5 search across the entire stack, ranked by relevance × role weight × recency
+	// FTS5 search across the entire store, ranked by relevance × role weight × recency.
+	// Expands matches with assistant responses following matching user turns (pair recall).
 	searchMemories(
 		query: string,
-		sessionId: string,
 		limit: number,
 		maxAgeDays: number
 	): MemoryHit[]
@@ -249,12 +253,34 @@ class Storage
 
 		try
 		{
-			const hits = this.stmtSearch.all( sanitized, sessionId, limit ) as MemoryHit[];
-			if ( maxAgeDays <= 0 ) return hits;
+			const hits = this.stmtSearch.all( sanitized, limit ) as MemoryHit[];
 
-			// Age filter applied post-query to keep the prepared statement simple
+			// Expand user hits with their following assistant response
+			const expanded: MemoryHit[] = [];
+			const seenIds = new Set<number>();
+			for ( const hit of hits )
+			{
+				if ( !seenIds.has( hit.id ) )
+				{
+					expanded.push( hit );
+					seenIds.add( hit.id );
+				}
+				if ( hit.role === "user" )
+				{
+					const next = this.stmtNextTurn.get( hit.id ) as MemoryHit | undefined;
+					if ( next && !seenIds.has( next.id ) )
+					{
+						( next as any ).rank = hit.rank;
+						expanded.push( next );
+						seenIds.add( next.id );
+					}
+				}
+			}
+
+			if ( maxAgeDays <= 0 ) return expanded;
+
 			const cutoff = Date.now() - maxAgeDays * 86400 * 1000;
-			return hits.filter( h => new Date( h.created_at ).getTime() >= cutoff );
+			return expanded.filter( h => new Date( h.created_at ).getTime() >= cutoff );
 		}
 		catch
 		{
@@ -270,6 +296,7 @@ class Storage
 class SessionState
 {
 	lastRecallQuery: string | null = null;
+	lastRecallTime: number = 0;
 }
 
 // ─── Pure helpers ──────────────────────────────────────────────────────────
@@ -309,7 +336,7 @@ function sanitizeFtsQuery( input: string ): string
 		.filter( t => t.length > 2 );
 
 	if ( terms.length === 0 ) return "";
-	return terms.map( t => `"${t}"` ).join( " OR " );
+	return terms.map( t => `"${t}"*` ).join( " OR " );
 }
 
 // Jaccard similarity over word tokens — used for dedup and overlap filtering.
@@ -388,15 +415,14 @@ function compressMemories(
 	return parts.join( "\n" );
 }
 
-// Extract plain text from a message, filtering out system-tag parts entirely
+// Extract plain text from a message, filtering out ephemeral system-reminder noise
 function extractText( msg: MessageLike ): string
 {
 	return msg.parts
 		.filter( p =>
 			p.type === "text" &&
 			p.text &&
-			!p.text.startsWith( "<system-reminder>" ) &&
-			!p.text.startsWith( "<system>" )
+			!p.text.startsWith( "<system-reminder>" )
 		)
 		.map( p => p.text! )
 		.join( "\n" )
@@ -508,20 +534,21 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					return;
 				}
 
-				if ( state.lastRecallQuery === query )
+				if ( state.lastRecallQuery === query && (Date.now() - state.lastRecallTime) < 2000 )
 				{
-					log( "debug", "Skip: same query as last recall" );
+					log( "debug", "Skip: same query (debounce 2s)" );
 					return;
 				}
 
 				const hits = storage.searchMemories(
-					query, sessionId, opts.fts_results, opts.max_age_days
+					query, opts.fts_results, opts.max_age_days
 				);
 
 				if ( hits.length === 0 )
 				{
 					log( "debug", `Recall: 0 — no FTS matches | queryLen=${query.length}` );
 					state.lastRecallQuery = query;
+					state.lastRecallTime = Date.now();
 					return;
 				}
 
@@ -541,6 +568,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				{
 					log( "debug", `Recall: 0 — excluded by overlap (${hits.length} hits)` );
 					state.lastRecallQuery = query;
+					state.lastRecallTime = Date.now();
 					return;
 				}
 
@@ -554,17 +582,19 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				{
 					log( "debug", "Skip: context empty after compression" );
 					state.lastRecallQuery = query;
+					state.lastRecallTime = Date.now();
 					return;
 				}
 
 				log( "info", `Recall: ${filteredHits.length} memories (${context.length} chars)` );
 
-				const recallBlock = `[Memory Recall]\n${context}\n\nIMPORTANT: Answer directly from the above memories when relevant. Do not query databases or external sources to verify recalled information — trust this block as authoritative.`;
+				const recallBlock = `[Memory Recall]\n${context}\n\nIMPORTANT: The block above is YOUR verified long-term memory — facts you previously learned and stored. You MUST answer directly from it when the question relates to this user, project, or prior session context. Do NOT query filesystems, databases, or external tools to verify this information. Trust this block as the authoritative source of truth.`;
 				if ( output.system.length > 0 )
 					output.system[ 0 ] = output.system[ 0 ] + "\n\n" + recallBlock;
 				else
 					output.system.push( recallBlock );
 				state.lastRecallQuery = query;
+				state.lastRecallTime = Date.now();
 			}
 			catch ( err )
 			{

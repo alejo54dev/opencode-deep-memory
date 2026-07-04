@@ -30,13 +30,13 @@ Triggers keep `turns_fts` in sync with `turns` on insert/delete/update.
 
 ## How it works
 
-1. **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash` SHA-1, by role `user`/`assistant`).
-2. **`experimental.chat.system.transform`** — finds last real user message, queries FTS5 across the entire stack, filters out overlap with recent context, dedups near-duplicates, injects compressed memories at the top of the system prompt with an authoritative directive to answer directly from them.
+1. **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash` SHA-1, by role `user`/`assistant`). Filters only `<system-reminder>` noise before write; passes `<system>` (handoff) through for indexing.
+2. **`experimental.chat.system.transform`** — finds last real user message, queries FTS5 across the **entire DB** (cross-project recall, no session filter), expands user hits with their following assistant response (pair recall), filters out overlap with recent context, dedups near-duplicates, injects compressed memories at the top of the system prompt with an authoritative `IMPORTANT:` directive to answer directly from them.
 3. **`dispose`** — flushes log buffer, closes DB, removes exit listener.
 
 ## Philosophy: stack-first
 
-Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pruning. FTS searches the whole stack (`fts_results: 20`) and injects up to `max_tokens_memory: 3000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pruning. FTS searches the whole DB (`fts_results: 20`) and injects up to `max_tokens_memory: 3000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
 
 ## Build
 

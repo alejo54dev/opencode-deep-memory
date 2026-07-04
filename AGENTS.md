@@ -15,7 +15,7 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 
 ```
 deep-memory/
-├── deep-memory.ts          # source (single file, 582 lines)
+├── deep-memory.ts          # source (single file, 612 lines)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
@@ -52,6 +52,16 @@ The plugin treats memory as a **growing stack**, not a bounded cache:
 - **Long retention** — `max_age_days: 3650` (10 years) keeps memories available across sessions.
 
 The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+
+## Changelog (v1.0.15)
+
+- **Cross-project recall:** FTS query no longer filters by `session_id` — searches entire DB.
+- **Handoff content indexed:** `extractText` only filters `<system-reminder>`; `<system>` passes through.
+- **Typo tolerance:** `sanitizeFtsQuery` uses prefix search (`"term"*`) instead of exact match.
+- **Pair recall:** Assistant responses are included after matching user turns.
+- **Stronger directive:** `IMPORTANT:` block says "YOUR verified long-term memory — MUST answer from it".
+- **Debounce instead of skip:** Same query within 2s is debounced, not permanently blocked.
+- **Content normalization before write:** `<system>` / `<system-reminder>` tags stripped before INSERT.
 
 ## Config
 
@@ -93,7 +103,11 @@ rm ~/.config/opencode/deep-memory.log
 - `session_id` = SHA-1 hex truncated to 16 chars of `username + ":" + cwd` (portable, no worktree dep, stable across hostname changes).
 - FTS5 tokenizer: `unicode61 remove_diacritics 1` (case + diacritic insensitive).
 - Content normalized lowercase before insert (consistent with FTS5).
+- FTS query is **cross-project** — no `AND t.session_id = ?` filter.
+- Prefix search in FTS: `"term"*` for typo tolerance.
 - Dedup via `INSERT OR IGNORE` on `idx_turns_dedup`.
+- Pair recall: assistant response inserted after matching user FTS hit (via `stmtNextTurn`: `id = ? + 1`).
+- Debounce: same recall query within 2s is skipped (`lastRecallQuery` + `lastRecallTime`).
 - Logger: synchronous append, non-fatal on write failures.
 - `process.once("exit")` registered, removed in `dispose`.
 
@@ -101,8 +115,8 @@ rm ~/.config/opencode/deep-memory.log
 
 | Hook | Purpose |
 |---|---|
-| `experimental.chat.messages.transform` | Store turns |
-| `experimental.chat.system.transform` | Recall + inject context (includes `IMPORTANT:` directive to trust the block) |
+| `experimental.chat.messages.transform` | Store turns (filters only `<system-reminder>`) |
+| `experimental.chat.system.transform` | Recall + inject context — cross-project FTS, pair recall, prefix search, overlap filter, dedup, `IMPORTANT:` directive |
 | `dispose` | Cleanup |
 
 ## Do not
