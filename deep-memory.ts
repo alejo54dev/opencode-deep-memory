@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.22
+*	@version 1.0.23
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -109,15 +109,14 @@ interface MessageLike
 function loadConfig()
 {
 	let file : Record<string, unknown> = {};
-
 	try
 	{
 		file = JSON.parse( readFileSync( CONFIG_FILE, "utf8" ) );
+		log( LOG_LEVEL.INFO, "Config loaded" ) ;
 	}
 	catch
 	{
 		log( LOG_LEVEL.ERROR, `Config not found or parse error at ${ CONFIG_FILE }` ) ;
-		return ;
 	}
 
 	const opts =
@@ -133,8 +132,6 @@ function loadConfig()
 	} as typeof CONFIG;
 
 	CONFIG.log_level = opts.log_level;
-
-	log( LOG_LEVEL.INFO, "Config loaded" ) ;
 
 	return opts;
 }
