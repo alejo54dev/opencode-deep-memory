@@ -1,12 +1,12 @@
-# deep-memory
+# Deep Memory (tiny brain, big thoughts)
 
 ![Version](https://img.shields.io/badge/version-1.0.22-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
-> OpenCode plugin — persistent long-term memory via SQLite FTS5.
-> Stores every conversation turn, recalls relevant context on demand.
-> No pruning — memory is a growing stack.
+> OpenCode plugin — SQLite FTS5 memory. Tiny footprint, massive recall.
+> Stores every turn, cross-session, no pruning.
+> Small package, big thoughts. A growing stack that never forgets.
 
 ## 🧠 What it is
 
