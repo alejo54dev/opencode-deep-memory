@@ -13,8 +13,8 @@
 *	{
 *		"fts_results": 20,
 *		"max_tokens_memory": 3000,
-*		"max_age_days": 3650,
-*		"log_level": "info", // "silent" | "error" | "info" | "debug"
+*		"max_age_days": 3650,       // 0 = forever
+*		"log_level": "info",        // "silent" | "error" | "info" | "debug"
 *		"overlap_threshold": 0.5,
 *		"dedup_threshold": 0.6,
 *		"recent_window": 8,
@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.16
+*	@version 1.0.17
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -61,13 +61,17 @@ const CONFIG =
 
 function loadConfig()
 {
-	const file = existsSync( CONFIG_FILE )
-		? ( () =>
-		{
-			try { return JSON.parse( readFileSync( CONFIG_FILE, "utf8" ) ); }
-			catch { return {}; }
-		} )()
-		: {};
+	let file : Record<string, unknown> = {};
+
+	try
+	{
+		file = JSON.parse( readFileSync( CONFIG_FILE, "utf8" ) );
+	}
+	catch
+	{
+		log( LOG_LEVEL.ERROR, `Config not found or parse error at ${ CONFIG_FILE }` ) ;
+		return ;
+	}
 
 	const opts =
 	{
@@ -83,6 +87,8 @@ function loadConfig()
 	} as typeof CONFIG;
 
 	CONFIG.log_level = opts.log_level;
+
+	log( LOG_LEVEL.INFO, "Config loaded" ) ;
 
 	return opts;
 }
