@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.18
+ *	@version 1.0.19
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -44,20 +44,7 @@ const LOG_FILE    = join( CONFIG_DIR, "deep-memory.log" ) ;
 const STORAGE_DIR = join( CONFIG_DIR, "storage" ) ;
 const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
-// ─── Defaults & Config ─────────────────────────────────────────────────────
-
-const CONFIG =
-{
-	fts_results:        20,
-	max_tokens_memory:  3000,
-	max_age_days:       3650,
-	log_level:          "info" as "silent" | "error" | "info" | "debug",
-	overlap_threshold:  0.5,
-	dedup_threshold:    0.6,
-	recent_window:      8,
-	overlap_window:     8,
-	max_snippet_chars:  250,
-};
+// ─── Config ─────────────────────────────────────────────────────────────────
 
 function loadConfig()
 {
@@ -95,6 +82,19 @@ function loadConfig()
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
+const CONFIG =
+{
+	fts_results:        20,
+	max_tokens_memory:  3000,
+	max_age_days:       3650,
+	log_level:          "info" as "silent" | "error" | "info" | "debug",
+	overlap_threshold:  0.5,
+	dedup_threshold:    0.6,
+	recent_window:      8,
+	overlap_window:     8,
+	max_snippet_chars:  250,
+};
+
 const LOG_LEVEL =
 {
 	SILENT : 0,
@@ -102,6 +102,15 @@ const LOG_LEVEL =
 	INFO   : 2,
 	DEBUG  : 3,
 } as const ;
+
+const STRIP_PATTERNS =
+[
+	/[\s\S]*?<\/dcp-message-id>/g,
+	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
+	/<system>[\s\S]*?<\/system>/g,
+	/<thinking>[\s\S]*?<\/thinking>/g,
+	/<tool_result>[\s\S]*?<\/tool_result>/g,
+];
 
 // ─── Logger ────────────────────────────────────────────────────────────────
 
@@ -348,12 +357,10 @@ function sessionHash( path: string ): string
 function normalizeContent( raw: string | undefined ): string
 {
 	if ( !raw ) return "";
-	return raw
-		.replace( /<dcp-message-id>[\s\S]*?<\/dcp-message-id>/g, "" )
-		.replace( /<system-reminder>[\s\S]*?<\/system-reminder>/g, "" )
-		.replace( /<system>[\s\S]*?<\/system>/g, "" )
-		.toLowerCase()
-		.trim();
+	let text = raw;
+	for ( const pattern of STRIP_PATTERNS )
+		text = text.replace( pattern, "" );
+	return text.toLowerCase().trim();
 }
 
 // Convert free-form text into a safe FTS5 OR-query, stripping common noise
