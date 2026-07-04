@@ -23,9 +23,9 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.19
+*	@version 1.0.20
 *	@author Alejandro Carraretto
-*	@author MiniMax-M3
+*	@author DeepSeek-V4
 *	@license MIT
 */
 

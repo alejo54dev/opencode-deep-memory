@@ -53,6 +53,10 @@ The plugin treats memory as a **growing stack**, not a bounded cache:
 
 The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
 
+## Changelog (v1.0.20)
+
+- **Interfaces after Constants:** Moved Interfaces section to right after Constants (before Config).
+
 ## Changelog (v1.0.19)
 
 - **STRIP_PATTERNS constant:** Abstracted strip patterns into `STRIP_PATTERNS` array in Constants section. Added `<thinking>` and `<tool_result>` filters. Moved `CONFIG` from "Defaults & Config" to Constants.
@@ -66,7 +70,7 @@ The goal: thousands of records accumulate, FTS finds relevant context across the
 - **Path unification:** `join(homedir(), ".config", "opencode")` instead of `${HOME}/.config/opencode`.
 - **Logger refactor:** Numeric LOG_LEVEL constant, function `log(level, message)` instead of string-level + rest args.
 - **Config unification:** `loadConfig()` IIFE pattern matching auto-handoff style.
-- **Section ordering:** Paths → Constants → Config → Logger → Interfaces → Storage → Helpers → Plugin.
+- **Section ordering:** Paths → Constants → Interfaces → Config → Logger → Storage → Helpers → Plugin.
 - **Cross-project recall:** FTS query no longer filters by `session_id` — searches entire DB.
 - **Handoff content indexed:** `extractText` only filters `<system-reminder>`; `<system>` passes through.
 - **Typo tolerance:** `sanitizeFtsQuery` uses prefix search (`"term"*`) instead of exact match.
