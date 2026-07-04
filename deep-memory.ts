@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.17
+ *	@version 1.0.18
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -419,7 +419,7 @@ function compressMemories(
 		if ( !isDup ) pick.push( h );
 	}
 
-	pick.sort( ( a, b ) => a.rank - b.rank );
+	pick.sort( ( a, b ) => b.rank - a.rank );
 
 	const parts: string[] = [];
 	let budget = maxTokens;

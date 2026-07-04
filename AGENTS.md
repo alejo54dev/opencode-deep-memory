@@ -15,7 +15,7 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 
 ```
 deep-memory/
-├── deep-memory.ts          # source (single file, 563 lines)
+├── deep-memory.ts          # source (single file, 569 lines)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
@@ -52,6 +52,10 @@ The plugin treats memory as a **growing stack**, not a bounded cache:
 - **Long retention** — `max_age_days: 3650` (10 years) keeps memories available across sessions.
 
 The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+
+## Changelog (v1.0.18)
+
+- **Fix sort order in compressMemories:** `b.rank - a.rank` (descending) so most relevant hits are included first in the token budget.
 
 ## Changelog (v1.0.16)
 
@@ -120,7 +124,7 @@ rm ~/.config/opencode/deep-memory.log
 | Hook | Purpose |
 |---|---|
 | `experimental.chat.messages.transform` | Store turns (filters only `<system-reminder>`) |
-| `experimental.chat.system.transform` | Recall + inject context — cross-project FTS, pair recall, prefix search, overlap filter, dedup, `IMPORTANT:` directive |
+| `experimental.chat.system.transform` | Append tool-reminder to system prompt |
 | `dispose` | Cleanup |
 
 ## Do not

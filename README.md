@@ -31,8 +31,9 @@ Triggers keep `turns_fts` in sync with `turns` on insert/delete/update.
 ## How it works
 
 1. **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash` SHA-1, by role `user`/`assistant`). Filters only `<system-reminder>` noise before write; passes `<system>` (handoff) through for indexing.
-2. **`experimental.chat.system.transform`** — finds last real user message, queries FTS5 across the **entire DB** (cross-project recall, no session filter), expands user hits with their following assistant response (pair recall), filters out overlap with recent context, dedups near-duplicates, injects compressed memories at the top of the system prompt with an authoritative `IMPORTANT:` directive to answer directly from them.
-3. **`dispose`** — flushes log buffer, closes DB, removes exit listener.
+2. **`experimental.chat.system.transform`** — appends a reminder to use the `deep_memory_recall` tool.
+3. **`tool.deep_memory_recall`** — on-demand FTS5 search across the **entire DB** (cross-project, no session filter). Returns ranked hits with pair recall (user + following assistant), overlap filter against recent context, dedup, and token-budgeted compression.
+4. **`dispose`** — closes DB, removes exit listener.
 
 ## Philosophy: stack-first
 
