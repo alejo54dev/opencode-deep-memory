@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.19
+*	@version 1.0.19
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -76,6 +76,32 @@ const STRIP_PATTERNS =
 	/<tool_result>[\s\S]*?<\/tool_result>/g,
 ];
 
+// ─── Interfaces ────────────────────────────────────────────────────────────
+
+interface TurnRow
+{
+	id: number;
+	session_id: string;
+	role: "user" | "assistant";
+	content: string;
+	created_at: string;
+}
+
+interface MemoryHit
+{
+	id: number;
+	role: "user" | "assistant";
+	content: string;
+	created_at: string;
+	rank: number;
+}
+
+interface MessageLike
+{
+	info: { role: "user" | "assistant"; id?: string };
+	parts: Array<{ type: string; text?: string }>;
+}
+
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 function loadConfig()
@@ -127,32 +153,6 @@ function log( level : number, message : string ) : void
 		appendFileSync( LOG_FILE, `[${ new Date().toISOString() }] [${ label }]: ${ message }\n` ) ;
 	}
 	catch {}
-}
-
-// ─── Interfaces ────────────────────────────────────────────────────────────
-
-interface TurnRow
-{
-	id: number;
-	session_id: string;
-	role: "user" | "assistant";
-	content: string;
-	created_at: string;
-}
-
-interface MemoryHit
-{
-	id: number;
-	role: "user" | "assistant";
-	content: string;
-	created_at: string;
-	rank: number;
-}
-
-interface MessageLike
-{
-	info: { role: "user" | "assistant"; id?: string };
-	parts: Array<{ type: string; text?: string }>;
 }
 
 // ─── Storage ───────────────────────────────────────────────────────────────
