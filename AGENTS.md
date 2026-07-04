@@ -15,7 +15,7 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 
 ```
 deep-memory/
-├── deep-memory.ts          # source (single file, ~770 lines)
+├── deep-memory.ts          # source (single file, ~586 lines)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
@@ -29,7 +29,7 @@ See script header (`deep-memory.ts:8`) for install path. Canonical load path: `p
 
 ```bash
 sqlite3 ~/.config/opencode/storage/deep-memory.db "PRAGMA user_version;"
-# expect: 2
+# expect: 4
 
 sqlite3 ~/.config/opencode/storage/deep-memory.db \
   "SELECT COUNT(*) FROM turns; SELECT COUNT(*) FROM turns_fts;"
@@ -38,6 +38,37 @@ sqlite3 ~/.config/opencode/storage/deep-memory.db \
 sqlite3 ~/.config/opencode/storage/deep-memory.db \
   "SELECT LENGTH(content_hash), LENGTH(session_id) FROM turns LIMIT 1;"
 # expect: 40 | 16
+```
+
+## Philosophy: stack-first
+
+The plugin treats memory as a **growing stack**, not a bounded cache:
+
+- **Stack grows** — every turn is stored, no pruning.
+- **FTS searches the whole stack** — `fts_results: 20` returns up to 20 hits per recall, ranked by FTS rank × role weight × recency decay.
+- **Context comes to the front** — `max_tokens_memory: 3000` injects compressed memories at the top of the system prompt on every turn.
+- **Permissive dedup** — `dedup_threshold: 0.6` keeps variations instead of collapsing them.
+- **Permissive overlap** — `overlap_threshold: 0.5` allows recall even when the topic repeats in recent turns.
+- **Long retention** — `max_age_days: 3650` (10 years) keeps memories available across sessions.
+
+The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+
+## Config
+
+Canonical config at `~/.config/opencode/deep-memory.json`:
+
+```json
+{
+	"fts_results": 20,
+	"max_tokens_memory": 3000,
+	"max_age_days": 3650,
+	"log_level": "info",
+	"overlap_threshold": 0.5,
+	"dedup_threshold": 0.6,
+	"recent_window": 8,
+	"overlap_window": 8,
+	"max_snippet_chars": 250
+}
 ```
 
 ## Reset (dev only)
@@ -53,6 +84,7 @@ rm ~/.config/opencode/deep-memory.log
 - Version: patch bump only (`1.0.x`) per coding rules.
 - Schema version: bump `PRAGMA user_version` on schema change.
 - No comments unless asked.
+- Recall block includes `IMPORTANT:` directive to prevent external verification.
 - English-only artifacts.
 
 ## Key invariants
@@ -62,7 +94,7 @@ rm ~/.config/opencode/deep-memory.log
 - FTS5 tokenizer: `unicode61 remove_diacritics 1` (case + diacritic insensitive).
 - Content normalized lowercase before insert (consistent with FTS5).
 - Dedup via `INSERT OR IGNORE` on `idx_turns_dedup`.
-- Logger: async buffer + 1s flush + 10MB rotation (keep 3 files).
+- Logger: synchronous append, non-fatal on write failures.
 - `process.once("exit")` registered, removed in `dispose`.
 
 ## Plugin hooks
@@ -70,7 +102,7 @@ rm ~/.config/opencode/deep-memory.log
 | Hook | Purpose |
 |---|---|
 | `experimental.chat.messages.transform` | Store turns |
-| `experimental.chat.system.transform` | Recall + inject context |
+| `experimental.chat.system.transform` | Recall + inject context (includes `IMPORTANT:` directive to trust the block) |
 | `dispose` | Cleanup |
 
 ## Do not

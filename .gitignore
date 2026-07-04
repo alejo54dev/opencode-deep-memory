@@ -5,3 +5,5 @@ storage/
 .env
 .DS_Store
 .handoff/
+.backups/
+deep-memory-presentation*

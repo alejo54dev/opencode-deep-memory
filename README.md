@@ -7,7 +7,7 @@ Install, paths, and config example: see script header in `deep-memory.ts`.
 ## Schema
 
 ```sql
-PRAGMA user_version = 2;
+PRAGMA user_version = 4;
 
 CREATE TABLE turns (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,14 +30,18 @@ Triggers keep `turns_fts` in sync with `turns` on insert/delete/update.
 
 ## How it works
 
-1. **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash` SHA-1).
-2. **`experimental.chat.system.transform`** — finds last real user message, queries FTS5, filters out overlap with recent context, dedups near-duplicates, injects compressed memories into system prompt.
+1. **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash` SHA-1, classified as `fact`/`question`/`meta`).
+2. **`experimental.chat.system.transform`** — finds last real user message, queries FTS5 across the entire stack, filters out overlap with recent context, dedups near-duplicates, injects compressed memories at the top of the system prompt with an authoritative directive to answer directly from them.
 3. **`dispose`** — flushes log buffer, closes DB, removes exit listener.
+
+## Philosophy: stack-first
+
+Memory is a **growing stack**, not a bounded cache. With `keep: 50000`, pruning never triggers in normal use. FTS searches the whole stack (`fts_results: 20`) and injects up to `max_tokens_memory: 3000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
 
 ## Build
 
 ```bash
-bun build deep-memory.ts --target=bun --outfile deep-memory.bundle.js
+bun build deep-memory.ts --target=bun
 ```
 
 ## License
