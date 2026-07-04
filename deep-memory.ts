@@ -23,13 +23,13 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.15
+ *	@version 1.0.16
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
 */
 
-import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
+import { type Plugin, type PluginInput, type PluginOptions, tool } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
@@ -290,16 +290,6 @@ class Storage
 	}
 }
 
-// ─── Session state ─────────────────────────────────────────────────────────
-
-// Per-plugin-instance state. Only tracks the last recall query to avoid
-// re-running the same FTS search on consecutive turns with identical input.
-class SessionState
-{
-	lastRecallQuery: string | null = null;
-	lastRecallTime: number = 0;
-}
-
 // ─── Pure helpers ──────────────────────────────────────────────────────────
 
 // SHA-1 hex of role + content — used as dedup key
@@ -465,8 +455,6 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 {
 	const opts = loadConfig();
 	const storage = Storage.open();
-	const state = new SessionState();
-
 	const sessionKey = `${userInfo().username}:${ctx.directory || process.cwd()}`;
 	const sessionId = sessionHash( sessionKey );
 
@@ -479,14 +467,62 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	log( "info", `Initialized | session: ${sessionId}` );
 
 	return {
-		// Store each turn + inject recall XML into last user message
+		tool: {
+			deep_memory_recall: tool( {
+				description: "Search long-term memory using full-text search. Use this when you need to recall past conversation turns, decisions, or facts stored across all sessions.",
+				args: {
+					query: tool.schema.string().describe( "The search query — natural language text describing what to find in memory" ),
+					max_results: tool.schema.number().optional().describe( "Maximum number of results to return (default: fts_results config)" ),
+				},
+				async execute( args, context )
+				{
+					try
+					{
+						const limit = args.max_results ?? opts.fts_results;
+						const recent = storage.getRecentTurns( sessionId, opts.overlap_window );
+						const hits = storage.searchMemories( args.query, limit, opts.max_age_days );
+
+						if ( hits.length === 0 )
+							return "<deep-memory>\n(no matches found)\n</deep-memory>";
+
+						const overlapWindow = recent.slice( 0, opts.overlap_window );
+						const filteredHits = hits.filter( hit =>
+						{
+							for ( const turn of overlapWindow )
+							{
+								if ( contentOverlap( hit.content, turn.content ) > opts.overlap_threshold )
+									return false;
+							}
+							return true;
+						} );
+
+						if ( filteredHits.length === 0 )
+							return "<deep-memory>\n(no matches found)\n</deep-memory>";
+
+						const contextStr = compressMemories(
+							filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
+						);
+
+						if ( !contextStr )
+							return "<deep-memory>\n(no matches found)\n</deep-memory>";
+
+						return `<deep-memory>\n${contextStr}\n</deep-memory>`;
+					}
+					catch ( err )
+					{
+						log( "error", "deep_memory_recall:", ( err as Error ).message );
+						return "<deep-memory>\n(error searching memory)\n</deep-memory>";
+					}
+				},
+			} ),
+		},
+
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
 			try
 			{
 				if ( !output.messages?.length ) return;
 
-				// Phase 1: store all messages (original text, before modification)
 				const pairs: Array<{ role: "user" | "assistant"; text: string }> = [];
 				for ( const msg of output.messages )
 				{
@@ -499,81 +535,6 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					const stored = storage.storeTurns( sessionId, pairs );
 					log( "info", "Stored:", stored, "turns" );
 				}
-
-				// Phase 2: recall and inject XML block into last user message
-				const lastUser = output.messages
-					.filter( m => m.info.role === "user" )
-					.pop() as MessageLike | undefined;
-				if ( !lastUser ) return;
-
-				const queryText = extractText( lastUser );
-				if ( !queryText || queryText.length < 3 ) return;
-
-				if (
-					state.lastRecallQuery === queryText &&
-					(Date.now() - state.lastRecallTime) < 2000
-				)
-				{
-					log( "debug", "Skip: same query (debounce 2s)" );
-					return;
-				}
-
-				const recent = storage.getRecentTurns( sessionId, opts.recent_window );
-				if ( recent.length === 0 ) return;
-
-				const hits = storage.searchMemories(
-					queryText, opts.fts_results, opts.max_age_days
-				);
-				if ( hits.length === 0 )
-				{
-					log( "debug", `Recall: 0 — no FTS matches | queryLen=${queryText.length}` );
-					state.lastRecallQuery = queryText;
-					state.lastRecallTime = Date.now();
-					return;
-				}
-
-				// Filter out hits overlapping with recent context
-				const overlapWindow = recent.slice( 0, opts.overlap_window );
-				const filteredHits = hits.filter( hit =>
-				{
-					for ( const turn of overlapWindow )
-					{
-						if ( contentOverlap( hit.content, turn.content ) > opts.overlap_threshold )
-							return false;
-					}
-					return true;
-				} );
-				if ( filteredHits.length === 0 )
-				{
-					log( "debug", `Recall: 0 — excluded by overlap (${hits.length} hits)` );
-					state.lastRecallQuery = queryText;
-					state.lastRecallTime = Date.now();
-					return;
-				}
-
-				const context = compressMemories(
-					filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
-				);
-				if ( !context )
-				{
-					log( "debug", "Skip: context empty after compression" );
-					state.lastRecallQuery = queryText;
-					state.lastRecallTime = Date.now();
-					return;
-				}
-
-				log( "info", `Recall: ${filteredHits.length} memories (${context.length} chars)` );
-
-				const recallBlock = `<deep-memory>\n${context}\n</deep-memory>\n\nCRITICAL: The <deep-memory> block above is YOUR long-term memory. Answer from it directly. You CANNOT access filesystems or databases to verify this information.`;
-
-				const targetPart = lastUser.parts.find( p => p.type === "text" );
-				if ( targetPart && targetPart.text !== undefined )
-				{
-					targetPart.text = recallBlock + "\n\n---\n\n" + targetPart.text;
-				}
-
-				state.lastRecallQuery = queryText;
-				state.lastRecallTime = Date.now();
 			}
 			catch ( err )
 			{
@@ -581,9 +542,9 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 			}
 		},
 
-		// Recall moved to messages.transform — hook kept for compatibility
-		"experimental.chat.system.transform": async () =>
+		"experimental.chat.system.transform": async ( _input, output ) =>
 		{
+			output.system.push( "[deep-memory active: use tool deep_memory_recall() to search long-term memory]" );
 		},
 
 		dispose: async () =>
