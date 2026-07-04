@@ -41,7 +41,7 @@ Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pru
 ## Build
 
 ```bash
-bun build deep-memory.ts --target=bun
+bun build deep-memory.ts --target=bun --external="@opencode-ai/plugin"
 ```
 
 ## License

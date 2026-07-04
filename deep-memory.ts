@@ -14,7 +14,7 @@
 *		"fts_results": 20,
 *		"max_tokens_memory": 3000,
 *		"max_age_days": 3650,
-*		"log_level": "info", // "silent" | "info" | "debug"
+*		"log_level": "info", // "silent" | "error" | "info" | "debug"
 *		"overlap_threshold": 0.5,
 *		"dedup_threshold": 0.6,
 *		"recent_window": 8,
@@ -23,7 +23,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.16
+*	@version 1.0.16
 *	@author Alejandro Carraretto
 *	@author MiniMax-M3
 *	@license MIT
@@ -34,32 +34,87 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
+import { join } from "node:path";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────
 
-const HOME = process.env.HOME || homedir();
-const CONFIG_DIR = `${HOME}/.config/opencode`;
-const STORAGE_DIR = `${CONFIG_DIR}/storage`;
-const DB_PATH = `${STORAGE_DIR}/deep-memory.db`;
-const CONFIG_FILE = `${CONFIG_DIR}/deep-memory.json`;
-const LOG_FILE = `${CONFIG_DIR}/deep-memory.log`;
+const CONFIG_DIR  = join( homedir(), ".config", "opencode" ) ;
+const CONFIG_FILE = join( CONFIG_DIR, "deep-memory.json" ) ;
+const LOG_FILE    = join( CONFIG_DIR, "deep-memory.log" ) ;
+const STORAGE_DIR = join( CONFIG_DIR, "storage" ) ;
+const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
-// ─── Defaults ──────────────────────────────────────────────────────────────
+// ─── Defaults & Config ─────────────────────────────────────────────────────
 
-// Default config values — overridden by JSON file at runtime
-const CONFIG = {
-	fts_results: 20,
-	max_tokens_memory: 3000,
-	max_age_days: 3650,
-	log_level: "info" as "silent" | "info" | "debug",
-	overlap_threshold: 0.5,
-	dedup_threshold: 0.6,
-	recent_window: 8,
-	overlap_window: 8,
-	max_snippet_chars: 250,
+const CONFIG =
+{
+	fts_results:        20,
+	max_tokens_memory:  3000,
+	max_age_days:       3650,
+	log_level:          "info" as "silent" | "error" | "info" | "debug",
+	overlap_threshold:  0.5,
+	dedup_threshold:    0.6,
+	recent_window:      8,
+	overlap_window:     8,
+	max_snippet_chars:  250,
 };
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+function loadConfig()
+{
+	const file = existsSync( CONFIG_FILE )
+		? ( () =>
+		{
+			try { return JSON.parse( readFileSync( CONFIG_FILE, "utf8" ) ); }
+			catch { return {}; }
+		} )()
+		: {};
+
+	const opts =
+	{
+		fts_results:        Math.max( 1,  file.fts_results        ?? CONFIG.fts_results       ),
+		max_tokens_memory:  Math.max( 100, file.max_tokens_memory ?? CONFIG.max_tokens_memory ),
+		max_age_days:       Math.max( 0,  file.max_age_days       ?? CONFIG.max_age_days      ),
+		log_level:          file.log_level                        ?? CONFIG.log_level          ,
+		overlap_threshold:  Math.max( 0,  file.overlap_threshold  ?? CONFIG.overlap_threshold ),
+		dedup_threshold:    Math.max( 0,  file.dedup_threshold    ?? CONFIG.dedup_threshold   ),
+		recent_window:      Math.max( 1,  file.recent_window      ?? CONFIG.recent_window     ),
+		overlap_window:     Math.max( 1,  file.overlap_window     ?? CONFIG.overlap_window    ),
+		max_snippet_chars:  Math.max( 50, file.max_snippet_chars  ?? CONFIG.max_snippet_chars ),
+	} as typeof CONFIG;
+
+	CONFIG.log_level = opts.log_level;
+
+	return opts;
+}
+
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const LOG_LEVEL =
+{
+	SILENT : 0,
+	ERROR  : 1,
+	INFO   : 2,
+	DEBUG  : 3,
+} as const ;
+
+// ─── Logger ────────────────────────────────────────────────────────────────
+
+function log( level : number, message : string ) : void
+{
+	const min = LOG_LEVEL[ ( CONFIG.log_level ?? "info" ).toUpperCase() ] ?? LOG_LEVEL.ERROR ;
+
+	if ( level > min ) return ;
+
+	const label = Object.keys( LOG_LEVEL )[ level ] ?? "" ;
+
+	try
+	{
+		appendFileSync( LOG_FILE, `[${ new Date().toISOString() }] [${ label }]: ${ message }\n` ) ;
+	}
+	catch {}
+}
+
+// ─── Interfaces ────────────────────────────────────────────────────────────
 
 interface TurnRow
 {
@@ -83,27 +138,6 @@ interface MessageLike
 {
 	info: { role: "user" | "assistant"; id?: string };
 	parts: Array<{ type: string; text?: string }>;
-}
-
-// ─── Logger ────────────────────────────────────────────────────────────────
-
-const LOG_LEVELS: Record<string, number> = { silent: 0, info: 1, debug: 2 };
-let logLevel = LOG_LEVELS.info!;
-
-function log( level: string, ...args: unknown[] ): void
-{
-	const lvl = LOG_LEVELS[ level ] ?? 1;
-	if ( lvl > logLevel ) return;
-
-	const msg = args.map( a =>
-		typeof a === "string" ? a : JSON.stringify( a )
-	).join( " " );
-
-	try
-	{
-		appendFileSync( LOG_FILE, `[${new Date().toISOString()}] [${level.toUpperCase()}]: ${msg}\n` );
-	}
-	catch {}
 }
 
 // ─── Storage ───────────────────────────────────────────────────────────────
@@ -290,7 +324,7 @@ class Storage
 	}
 }
 
-// ─── Pure helpers ──────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 // SHA-1 hex of role + content — used as dedup key
 function hashContent( role: string, content: string ): string
@@ -421,34 +455,6 @@ function extractText( msg: MessageLike ): string
 		.trim();
 }
 
-// Merge file config with CONFIG defaults, sanitise values
-function loadConfig(): Record<string, any>
-{
-	try
-	{
-		const file = JSON.parse( readFileSync( CONFIG_FILE, "utf-8" ) );
-		const opts = {
-			fts_results:        Math.max( 1,   file.fts_results       ?? CONFIG.fts_results       ),
-			max_tokens_memory:  Math.max( 100, file.max_tokens_memory ?? CONFIG.max_tokens_memory ),
-			max_age_days:       Math.max( 0,   file.max_age_days      ?? CONFIG.max_age_days      ),
-			log_level:          file.log_level                        ?? CONFIG.log_level          ,
-			overlap_threshold:  Math.max( 0,   file.overlap_threshold ?? CONFIG.overlap_threshold ),
-			dedup_threshold:    Math.max( 0,   file.dedup_threshold   ?? CONFIG.dedup_threshold   ),
-			recent_window:      Math.max( 1,   file.recent_window     ?? CONFIG.recent_window     ),
-			overlap_window:     Math.max( 1,   file.overlap_window    ?? CONFIG.overlap_window    ),
-			max_snippet_chars:  Math.max( 50,  file.max_snippet_chars ?? CONFIG.max_snippet_chars ),
-		};
-		logLevel = LOG_LEVELS[ opts.log_level ] ?? LOG_LEVELS.info!;
-		return opts;
-	}
-	catch
-	{
-		log( "error", "Config error — using defaults" );
-		logLevel = LOG_LEVELS.info!;
-		return { ...CONFIG };
-	}
-}
-
 // ─── Plugin ────────────────────────────────────────────────────────────────
 
 export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
@@ -464,7 +470,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	};
 	process.once( "exit", onExit );
 
-	log( "info", `Initialized | session: ${sessionId}` );
+	log( LOG_LEVEL.INFO, `Initialized | session: ${sessionId}` );
 
 	return {
 		tool: {
@@ -510,7 +516,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					}
 					catch ( err )
 					{
-						log( "error", "deep_memory_recall:", ( err as Error ).message );
+						log( LOG_LEVEL.ERROR, `deep_memory_recall: ${( err as Error ).message}` );
 						return "<deep-memory>\n(error searching memory)\n</deep-memory>";
 					}
 				},
@@ -533,12 +539,12 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 				if ( pairs.length > 0 )
 				{
 					const stored = storage.storeTurns( sessionId, pairs );
-					log( "info", "Stored:", stored, "turns" );
+					log( LOG_LEVEL.INFO, `Stored: ${stored} turns` );
 				}
 			}
 			catch ( err )
 			{
-				log( "error", "messages.transform:", ( err as Error ).message );
+				log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` );
 			}
 		},
 
@@ -551,7 +557,7 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 		{
 			process.removeListener( "exit", onExit );
 			storage.close();
-			log( "info", "Disposed | session:", sessionId );
+			log( LOG_LEVEL.INFO, `Disposed | session: ${sessionId}` );
 		},
 	};
 } ) satisfies Plugin;

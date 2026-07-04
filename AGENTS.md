@@ -6,16 +6,16 @@ OpenCode plugin — persistent long-term memory via SQLite FTS5. Single-file Typ
 
 ## Stack
 
-- **Runtime:** Bun (uses `bun:sqlite`, `node:crypto`, `node:fs`)
+- **Runtime:** Bun (uses `bun:sqlite`, `node:crypto`, `node:fs`, `node:path`)
 - **DB:** SQLite with FTS5 (`unicode61 remove_diacritics 1`)
 - **Hash:** SHA-1 (`node:crypto` native)
-- **Build:** `bun build --target=bun`
+- **Build:** `bun build --target=bun --external="@opencode-ai/plugin"`
 
 ## File layout
 
 ```
 deep-memory/
-├── deep-memory.ts          # source (single file, 612 lines)
+├── deep-memory.ts          # source (single file, 563 lines)
 ├── README.md
 ├── AGENTS.md
 └── .handoff/               # session handoffs (gitignored)
@@ -53,8 +53,12 @@ The plugin treats memory as a **growing stack**, not a bounded cache:
 
 The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
 
-## Changelog (v1.0.15)
+## Changelog (v1.0.16)
 
+- **Path unification:** `join(homedir(), ".config", "opencode")` instead of `${HOME}/.config/opencode`.
+- **Logger refactor:** Numeric LOG_LEVEL constant, function `log(level, message)` instead of string-level + rest args.
+- **Config unification:** `loadConfig()` IIFE pattern matching auto-handoff style.
+- **Section ordering:** Paths → Defaults & Config → Constants → Logger → Interfaces → Storage → Helpers → Plugin.
 - **Cross-project recall:** FTS query no longer filters by `session_id` — searches entire DB.
 - **Handoff content indexed:** `extractText` only filters `<system-reminder>`; `<system>` passes through.
 - **Typo tolerance:** `sanitizeFtsQuery` uses prefix search (`"term"*`) instead of exact match.
