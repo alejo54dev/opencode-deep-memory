@@ -18,58 +18,34 @@
 ## 🔄 How it works
 
 ```
-                     Message arrives (messages.transform)
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────┐
-│  ① Extract text :: strip DCP/system/thinking/tool tags   │
-│  ② Store in SQLite :: dedup by session_id + content_hash │
-└──────────────────────────────────────────────────────────┘
-                                │
-                     Model calls deep_memory_recall tool
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────┐
-│  ③ Get recent turns (overlap_window)                     │
-│  ④ FTS5 search :: entire DB, no session filter           │
-│     Ranked by: relevance × role weight × recency decay   │
-│  ⑤ Pair recall :: expand user hits with assistant reply  │
-│  ⑥ Age filter :: max_age_days                            │
-│  ⑦ Overlap filter :: discard hits too similar to recent  │
-│  ⑧ Compress :: dedup + token budget + snippet truncation │
-└──────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                     <deep-memory>...</deep-memory>
-                          injected into context
+                    Message arrives
+                          │
+                          ▼
+             ┌──────────────────────────┐
+             │  ① Store turn in SQLite   │
+             │  (dedup by session+hash)  │
+             └──────────┬───────────────┘
+                        │
+                   Model calls tool
+                        │
+                        ▼
+             ┌──────────────────────────┐
+             │  ② FTS5 search           │
+             │     cross-session        │
+             │  ③ Pair recall           │
+             │  ④ Age / Overlap filter  │
+             │  ⑤ Dedup + Token budget  │
+             └──────────┬───────────────┘
+                        │
+                        ▼
+             ┌──────────────────────────┐
+             │  <deep-memory> injected   │
+             │  into context             │
+             └──────────────────────────┘
 
-              (system.transform runs every turn)
-              "use deep_memory_recall()" reminder appended
+             (reminder appended via
+              system.transform each turn)
 ```
-
-## 🗄️ Schema
-
-```sql
-PRAGMA user_version = 4;
-
-CREATE TABLE turns (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	session_id TEXT NOT NULL,
-	role TEXT NOT NULL CHECK(role IN ('user','assistant')),
-	content TEXT NOT NULL,
-	content_hash TEXT NOT NULL,
-	created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE UNIQUE INDEX idx_turns_dedup ON turns(session_id, content_hash);
-CREATE INDEX idx_turns_session_created ON turns(session_id, created_at);
-
-CREATE VIRTUAL TABLE turns_fts USING fts5(
-	content, content='turns', content_rowid='id',
-	tokenize="unicode61 remove_diacritics 1"
-);
-```
-
-Triggers keep `turns_fts` in sync with `turns` on insert/delete/update.
 
 ## 🏗️ Philosophy: stack-first
 
