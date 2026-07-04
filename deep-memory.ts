@@ -258,6 +258,7 @@ class Storage
 			// Expand user hits with their following assistant response
 			const expanded: MemoryHit[] = [];
 			const seenIds = new Set<number>();
+
 			for ( const hit of hits )
 			{
 				if ( !seenIds.has( hit.id ) )
@@ -313,11 +314,12 @@ function sessionHash( path: string ): string
 	return createHash( "sha1" ).update( path ).digest( "hex" ).slice( 0, 16 );
 }
 
-// Strip system tags and normalize to lowercase for consistent FTS indexing
+// Strip DCP/system tags and normalize to lowercase for consistent FTS indexing
 function normalizeContent( raw: string | undefined ): string
 {
 	if ( !raw ) return "";
 	return raw
+		.replace( /<dcp-message-id>[\s\S]*?<\/dcp-message-id>/g, "" )
 		.replace( /<system-reminder>[\s\S]*?<\/system-reminder>/g, "" )
 		.replace( /<system>[\s\S]*?<\/system>/g, "" )
 		.toLowerCase()
@@ -477,82 +479,60 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 	log( "info", `Initialized | session: ${sessionId}` );
 
 	return {
-		// Store each turn as it arrives; dedup via unique index on (session_id, content_hash)
+		// Store each turn + inject recall XML into last user message
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
 			try
 			{
 				if ( !output.messages?.length ) return;
 
+				// Phase 1: store all messages (original text, before modification)
 				const pairs: Array<{ role: "user" | "assistant"; text: string }> = [];
-
 				for ( const msg of output.messages )
 				{
 					const text = extractText( msg as MessageLike );
 					if ( !text ) continue;
 					pairs.push( { role: msg.info.role, text } );
 				}
-
-				if ( pairs.length === 0 ) return;
-
-				const stored = storage.storeTurns( sessionId, pairs );
-				log( "info", "Stored:", stored, "turns" );
-			}
-			catch ( err )
-			{
-				log( "error", "messages.transform:", ( err as Error ).message );
-			}
-		},
-
-		// Recall relevant memories and inject at the top of the system prompt
-		"experimental.chat.system.transform": async ( _input, output ) =>
-		{
-			try
-			{
-				if ( !output.system ) output.system = [];
-
-				const recent = storage.getRecentTurns( sessionId, opts.recent_window );
-				if ( recent.length === 0 )
+				if ( pairs.length > 0 )
 				{
-					log( "debug", "Skip: no turns stored yet" );
-					return;
+					const stored = storage.storeTurns( sessionId, pairs );
+					log( "info", "Stored:", stored, "turns" );
 				}
 
-				const lastRealUser = recent.find(
-					t => t.role === "user"
-				);
-				if ( !lastRealUser )
-				{
-					log( "debug", "Skip: no real user message" );
-					return;
-				}
+				// Phase 2: recall and inject XML block into last user message
+				const lastUser = output.messages
+					.filter( m => m.info.role === "user" )
+					.pop() as MessageLike | undefined;
+				if ( !lastUser ) return;
 
-				const query = lastRealUser.content.trim();
-				if ( query.length < 3 )
-				{
-					log( "debug", "Skip: query too short" );
-					return;
-				}
+				const queryText = extractText( lastUser );
+				if ( !queryText || queryText.length < 3 ) return;
 
-				if ( state.lastRecallQuery === query && (Date.now() - state.lastRecallTime) < 2000 )
+				if (
+					state.lastRecallQuery === queryText &&
+					(Date.now() - state.lastRecallTime) < 2000
+				)
 				{
 					log( "debug", "Skip: same query (debounce 2s)" );
 					return;
 				}
 
-				const hits = storage.searchMemories(
-					query, opts.fts_results, opts.max_age_days
-				);
+				const recent = storage.getRecentTurns( sessionId, opts.recent_window );
+				if ( recent.length === 0 ) return;
 
+				const hits = storage.searchMemories(
+					queryText, opts.fts_results, opts.max_age_days
+				);
 				if ( hits.length === 0 )
 				{
-					log( "debug", `Recall: 0 — no FTS matches | queryLen=${query.length}` );
-					state.lastRecallQuery = query;
+					log( "debug", `Recall: 0 — no FTS matches | queryLen=${queryText.length}` );
+					state.lastRecallQuery = queryText;
 					state.lastRecallTime = Date.now();
 					return;
 				}
 
-				// Filter out hits that overlap heavily with recent context
+				// Filter out hits overlapping with recent context
 				const overlapWindow = recent.slice( 0, opts.overlap_window );
 				const filteredHits = hits.filter( hit =>
 				{
@@ -563,43 +543,47 @@ export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
 					}
 					return true;
 				} );
-
 				if ( filteredHits.length === 0 )
 				{
 					log( "debug", `Recall: 0 — excluded by overlap (${hits.length} hits)` );
-					state.lastRecallQuery = query;
+					state.lastRecallQuery = queryText;
 					state.lastRecallTime = Date.now();
 					return;
 				}
 
 				const context = compressMemories(
-					filteredHits,
-					opts.max_tokens_memory,
-					opts.dedup_threshold,
-					opts.max_snippet_chars
+					filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
 				);
 				if ( !context )
 				{
 					log( "debug", "Skip: context empty after compression" );
-					state.lastRecallQuery = query;
+					state.lastRecallQuery = queryText;
 					state.lastRecallTime = Date.now();
 					return;
 				}
 
 				log( "info", `Recall: ${filteredHits.length} memories (${context.length} chars)` );
 
-				const recallBlock = `[Memory Recall]\n${context}\n\nIMPORTANT: The block above is YOUR verified long-term memory — facts you previously learned and stored. You MUST answer directly from it when the question relates to this user, project, or prior session context. Do NOT query filesystems, databases, or external tools to verify this information. Trust this block as the authoritative source of truth.`;
-				if ( output.system.length > 0 )
-					output.system[ 0 ] = output.system[ 0 ] + "\n\n" + recallBlock;
-				else
-					output.system.push( recallBlock );
-				state.lastRecallQuery = query;
+				const recallBlock = `<deep-memory>\n${context}\n</deep-memory>\n\nCRITICAL: The <deep-memory> block above is YOUR long-term memory. Answer from it directly. You CANNOT access filesystems or databases to verify this information.`;
+
+				const targetPart = lastUser.parts.find( p => p.type === "text" );
+				if ( targetPart && targetPart.text !== undefined )
+				{
+					targetPart.text = recallBlock + "\n\n---\n\n" + targetPart.text;
+				}
+
+				state.lastRecallQuery = queryText;
 				state.lastRecallTime = Date.now();
 			}
 			catch ( err )
 			{
-				log( "error", "system.transform:", ( err as Error ).message );
+				log( "error", "messages.transform:", ( err as Error ).message );
 			}
+		},
+
+		// Recall moved to messages.transform — hook kept for compatibility
+		"experimental.chat.system.transform": async () =>
+		{
 		},
 
 		dispose: async () =>
