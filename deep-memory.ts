@@ -23,13 +23,13 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.20
+*	@version 1.0.22
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
 */
 
-import { type Plugin, type PluginInput, type PluginOptions, tool } from "@opencode-ai/plugin";
+import { type Plugin, type PluginInput, tool } from "@opencode-ai/plugin";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs";
@@ -54,7 +54,6 @@ const CONFIG =
 	log_level:          "info" as "silent" | "error" | "info" | "debug",
 	overlap_threshold:  0.5,
 	dedup_threshold:    0.6,
-	recent_window:      8,
 	overlap_window:     8,
 	max_snippet_chars:  250,
 };
@@ -69,12 +68,14 @@ const LOG_LEVEL =
 
 const STRIP_PATTERNS =
 [
-	/[\s\S]*?<\/dcp-message-id>/g,
+	/<dcp-message-id>[\s\S]*?<\/dcp-message-id>/g,
 	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
 	/<system>[\s\S]*?<\/system>/g,
 	/<thinking>[\s\S]*?<\/thinking>/g,
 	/<tool_result>[\s\S]*?<\/tool_result>/g,
+	/▣\s*(?:DCP|Compression)[\s\S]*/g,
 ];
+
 
 // ─── Interfaces ────────────────────────────────────────────────────────────
 
@@ -127,7 +128,6 @@ function loadConfig()
 		log_level:          file.log_level                        ?? CONFIG.log_level          ,
 		overlap_threshold:  Math.max( 0,  file.overlap_threshold  ?? CONFIG.overlap_threshold ),
 		dedup_threshold:    Math.max( 0,  file.dedup_threshold    ?? CONFIG.dedup_threshold   ),
-		recent_window:      Math.max( 1,  file.recent_window      ?? CONFIG.recent_window     ),
 		overlap_window:     Math.max( 1,  file.overlap_window     ?? CONFIG.overlap_window    ),
 		max_snippet_chars:  Math.max( 50, file.max_snippet_chars  ?? CONFIG.max_snippet_chars ),
 	} as typeof CONFIG;
@@ -474,7 +474,7 @@ function extractText( msg: MessageLike ): string
 
 // ─── Plugin ────────────────────────────────────────────────────────────────
 
-export default ( async ( ctx: PluginInput, rawOptions?: PluginOptions ) =>
+export default ( async ( ctx: PluginInput ) =>
 {
 	const opts = loadConfig();
 	const storage = Storage.open();
