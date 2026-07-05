@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.28-blue)
+![Version](https://img.shields.io/badge/version-1.0.29-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -72,18 +72,18 @@ The plugin loads automatically when OpenCode starts. No manual registration requ
 
 ## ⚙️ Configuration
 
-Copy `deep-memory.json` (included in this repo) to `~/.config/opencode/` and edit:
+Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and edit:
 
-```json
+```jsonc
 {
 	"fts_results": 20,
 	"max_tokens_memory": 2000,
-	"max_age_days": 3000,
-	"log_level": "info",
+	"max_age_days": 3000,       // 0 = forever
 	"overlap_threshold": 0.5,
 	"dedup_threshold": 0.6,
 	"overlap_window": 8,
-	"max_snippet_chars": 250
+	"max_snippet_chars": 250,
+	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
 ```
 
@@ -127,4 +127,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.28
+MIT — version 1.0.29

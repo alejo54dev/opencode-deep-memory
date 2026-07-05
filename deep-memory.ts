@@ -6,10 +6,10 @@
 *
 *	Install: cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 *	Storage: ~/.config/opencode/storage/deep-memory.db
-*	Config:  ~/.config/opencode/deep-memory.json
+ *	Config:  ~/.config/opencode/deep-memory.jsonc
 *	Log:     ~/.config/opencode/deep-memory.log
 *
-*	@example ~/.config/opencode/deep-memory.json
+ *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"fts_results": 20,
 *		"max_tokens_memory": 2000,
@@ -22,7 +22,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.28
+ *	@version 1.0.29
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -38,7 +38,7 @@ import { join } from "node:path";
 // ─── Paths ─────────────────────────────────────────────────────────────────
 
 const CONFIG_DIR  = join( homedir(), ".config", "opencode" ) ;
-const CONFIG_FILE = join( CONFIG_DIR, "deep-memory.json" ) ;
+const CONFIG_FILE = join( CONFIG_DIR, "deep-memory.jsonc" ) ;
 const LOG_FILE    = join( CONFIG_DIR, "deep-memory.log" ) ;
 const STORAGE_DIR = join( CONFIG_DIR, "storage" ) ;
 const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
@@ -120,7 +120,7 @@ function loadConfig()
 	let file : Record<string, unknown> = {};
 	try
 	{
-		file = JSON.parse( readFileSync( CONFIG_FILE, "utf8" ) );
+		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) );
 		log( LOG_LEVEL.INFO, "Config loaded" ) ;
 	}
 	catch
