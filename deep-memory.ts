@@ -480,23 +480,16 @@ function extractText( msg: MessageLike ): string
 
 export default ( async ( ctx: PluginInput ) =>
 {
-	const opts = loadConfig();
-	const storage = Storage.open();
-	const sessionKey = `${userInfo().username}:${ctx.directory || process.cwd()}`;
-	const sessionId = sessionHash( sessionKey );
+	const opts      = loadConfig();
+	const storage   = Storage.open();
+	const sessionId = sessionHash( `${userInfo().username}:${ctx.directory || process.cwd()}` );
+	const onExit    = () => storage.close();
 
-	// Cleanup handler: close DB on process exit
-	const onExit = () =>
-	{
-		storage.close();
-	};
 	process.once( "exit", onExit );
-
 	log( LOG_LEVEL.INFO, `Initialized | session: ${sessionId}` );
 
 	return {
 		tool: {
-			// Tool: search long-term memory via FTS5, dedup against recent window, compress to token budget
 			deep_memory_recall: tool( {
 				description: "Search long-term memory using full-text search. Use this when you need to recall past conversation turns, decisions, or facts stored across all sessions.",
 				args: {
@@ -507,30 +500,7 @@ export default ( async ( ctx: PluginInput ) =>
 				{
 					try
 					{
-						const limit = args.max_results ?? opts.fts_results;
-						const recent = storage.getRecentTurns( sessionId, opts.overlap_window );
-						const hits = storage.searchMemories( args.query, limit, opts.max_age_days );
-
-						const filteredHits = hits.filter( hit =>
-						{
-							for ( const turn of recent )
-							{
-								if ( contentOverlap( hit.content, turn.content ) > opts.overlap_threshold )
-									return false;
-							}
-							return true;
-						} );
-
-						const contextStr = filteredHits.length === 0
-							? ""
-							: compressMemories(
-								filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
-							);
-
-						if ( !contextStr )
-							return "<deep-memory>\n(no matches found)\n</deep-memory>";
-
-						return `<deep-memory>\n${contextStr}\n</deep-memory>`;
+						return handleRecall( args, opts, storage, sessionId );
 					}
 					catch ( err )
 					{
@@ -541,39 +511,16 @@ export default ( async ( ctx: PluginInput ) =>
 			} ),
 		},
 
-		// Hook: capture each turn and store in SQLite via storeTurns
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
-			try
-			{
-				if ( !output.messages?.length ) return;
-
-				const pairs: Array<{ role: "user" | "assistant"; text: string }> = [];
-				for ( const msg of output.messages )
-				{
-					const text = extractText( msg as MessageLike );
-					if ( !text ) continue;
-					pairs.push( { role: msg.info.role, text } );
-				}
-				if ( pairs.length > 0 )
-				{
-					const stored = storage.storeTurns( sessionId, pairs );
-					log( LOG_LEVEL.INFO, `Stored: ${stored} turns` );
-				}
-			}
-			catch ( err )
-			{
-				log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` );
-			}
+			handleMessagesTransform( output, storage, sessionId );
 		},
 
-		// Hook: inject system reminder about deep_memory_recall tool availability
 		"experimental.chat.system.transform": async ( _input, output ) =>
 		{
 			output.system.push( "[deep-memory active: use tool deep_memory_recall() to search long-term memory]" );
 		},
 
-		// Cleanup: remove exit listener, close DB with WAL checkpoint
 		dispose: async () =>
 		{
 			process.removeListener( "exit", onExit );
@@ -582,3 +529,67 @@ export default ( async ( ctx: PluginInput ) =>
 		},
 	};
 } ) satisfies Plugin;
+
+// ─── Handlers ────────────────────────────────────────────────────────────────
+
+function handleRecall(
+	args    : { query: string; max_results?: number },
+	opts    : ReturnType<typeof loadConfig>,
+	storage : Storage,
+	sessionId : string,
+): string
+{
+	const limit   = args.max_results ?? opts.fts_results;
+	const recent  = storage.getRecentTurns( sessionId, opts.overlap_window );
+	const hits    = storage.searchMemories( args.query, limit, opts.max_age_days );
+
+	const filteredHits = hits.filter( hit =>
+	{
+		for ( const turn of recent )
+		{
+			if ( contentOverlap( hit.content, turn.content ) > opts.overlap_threshold )
+				return false;
+		}
+		return true;
+	} );
+
+	const contextStr = filteredHits.length === 0
+		? ""
+		: compressMemories(
+			filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
+		);
+
+	if ( !contextStr )
+		return "<deep-memory>\n(no matches found)\n</deep-memory>";
+
+	return `<deep-memory>\n${contextStr}\n</deep-memory>`;
+}
+
+function handleMessagesTransform(
+	output  : { messages: Array<MessageLike> },
+	storage : Storage,
+	sessionId : string,
+): void
+{
+	try
+	{
+		if ( !output.messages?.length ) return;
+
+		const pairs: Array<{ role: "user" | "assistant"; text: string }> = [];
+		for ( const msg of output.messages )
+		{
+			const text = extractText( msg as MessageLike );
+			if ( !text ) continue;
+			pairs.push( { role: msg.info.role, text } );
+		}
+		if ( pairs.length > 0 )
+		{
+			const stored = storage.storeTurns( sessionId, pairs );
+			log( LOG_LEVEL.INFO, `Stored: ${stored} turns` );
+		}
+	}
+	catch ( err )
+	{
+		log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` );
+	}
+}
