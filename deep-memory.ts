@@ -22,7 +22,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.26
+ *	@version 1.0.27
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -83,6 +83,7 @@ const STRIP_PATTERNS =
 	/\[Old tool result/g,
 	/▣\s*(?:DCP|Compression)[\s\S]*/g,
 	/\[Compressed[\s\S]*/g,
+	/<handoff-resume>[\s\S]*?<\/handoff-resume>/g,
 ];
 
 // ─── Interfaces ────────────────────────────────────────────────────────────
@@ -281,7 +282,7 @@ class Storage
 		{
 			for ( const m of msgs )
 			{
-				const text = m.role === "user" ? m.text.trim() : normalizeContent( m.text );
+				const text = normalizeContent( m.text );
 				if ( !text ) continue;
 				const result = this.stmtInsert.run(
 					sessionId, m.role, text, hashContent( m.role, text )
