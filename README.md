@@ -19,10 +19,11 @@ Three hooks. One job.
 ## 🔄 How it works
 
 ```mermaid
-flowchart TD
-    A["📥 Messages pass through"] --> B["💾 Auto-store + Reminder"]
+flowchart LR
+    A["📥 Messages pass through"]
+    A --> B["💾 Auto-store + Reminder"]
     B --> C{"deep_memory_recall()<br/>called?"}
-    C -->|"✅ Yes"| D["🔍 FTS → Pair → Age →<br/>Overlap → Dedup → Budget"]
+    C -->|"✅ Yes"| D["🔍 FTS → Pair recall →<br/>Age → Overlap →<br/>Dedup → Token budget"]
     D --> E["📎 &lt;deep-memory&gt;<br/>returned"]
     C -->|"❌ No"| F["💬 Normal response"]
 
