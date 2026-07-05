@@ -4,27 +4,27 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
-> 595 lines. Zero external dependencies. SQLite FTS5 with diacritic-aware search.
-> Every turn stored. Every session searchable. Cross-project by default.
-> No database to install. No config to tweak. Your AI just remembers.
+> Tu AI tiene amnesia. Cada sesión arranca de cero. Repites configuraciones, decisiones, bugs que ya arreglaste.
 
 ## 💡 What it does
 
-- **Single-file plugin** — one TypeScript file (595 lines), Bun's built-in `bun:sqlite` and `node:crypto`. No `npm install`, no `node_modules`, no drama.
+> Tu AI debería recordar. Punto.
 
-- **Automatic storage** — every turn saved with dedup by `session_id + content_hash`. DCP/system/thinking/tool tags stripped before indexing. Boring, reliable, background.
+- **Copia y funciona** — 595 líneas, bun:sqlite nativo. Sin npm, sin node_modules, sin drama.
 
-- **Cross-project FTS** — SQLite FTS5 with `unicode61 remove_diacritics 1`. No `session_id` filter — searches every memory across every project. Typo-tolerant prefix search included.
+- **Memoria automática** — cada mensaje se guarda solo. Tags inservibles se limpian. Tú no haces nada.
 
-- **Smart recall pipeline** — FTS relevance × 3× user boost × recency decay. Then pair recall (user + assistant), age filter (in SQL), overlap and dedup (Jaccard), and finally token budget (`max_tokens_memory: 2000`). Only the best context makes the cut.
+- **Busca entre proyectos** — el bug que resolviste la semana pasada aparece solo. SQLite FTS5, tolerante a errores de tipeo.
+
+- **Pipeline inteligente** — relevancia × peso × antigüedad → par usuario/respuesta → solo el contexto justo.
 
 ## 🧠 Philosophy
 
-Memory is a **growing stack**, not a bounded cache. Everything stored, nothing pruned. The DB grows, the stack grows, thousands of turns accumulate.
+La memoria es una pila que crece, no un caché que se limpia. Todo se guarda, nada se poda.
 
-Reading the stack is **proactive**, not automatic. The system prompt carries a one-line reminder — the model must call `deep_memory_recall()` when it needs context. No forced injection, no tokens wasted on irrelevant noise.
+El modelo decide cuándo preguntar. Una línea en el system prompt le recuerda que existe `deep_memory_recall()`. Sin inyección forzada, sin tokens desperdiciados en ruido.
 
-When the tool fires, the pipeline curates: FTS across the entire DB → pair + age + overlap + dedup + budget → a `<deep-memory>` block with the most relevant past context. Cross-project, always.
+Cuando pregunta, el pipeline busca en toda la DB — entre proyectos, entre sesiones, entre meses — y devuelve solo lo que importa.
 
 ## 🔄 How it works
 
@@ -52,15 +52,15 @@ flowchart TD
     style H fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-## 🎯 Use cases
+## 🎯 Casos de uso
 
-**History repeats.** You fixed a race condition in project A two months ago. Now you're debugging a similar issue in project B. The model recalls the exact fix pattern. Minutes saved: 30+.
+**El déjà vu.** Arreglaste un bug en el proyecto A hace dos meses. Ahora en el proyecto B pasa algo similar. El modelo lo recuerda y te da la solución. 30 minutos ahorrados.
 
-**Architecture archaeology.** "Why did we choose SQLite over Postgres?" The model remembers the discussion from three sessions ago. No Slack digging, no git blame spelunking.
+**El "por qué usamos SQLite".** Lo discutieron hace tres sesiones. El modelo lo sabe. No más buscar en Slack ni hacer arqueología en git blame.
 
-**Onboarding time machine.** A new feature touches code you discussed weeks ago. The model recalls the context, the trade-offs, the rejected alternatives. Old debates stay settled.
+**La máquina del tiempo.** Una feature nueva toca código que ya hablaste hace semanas. El modelo trae el contexto, los trade-offs, las alternativas descartadas. Viejos debates, ya saldados.
 
-**Bug backtrack.** Same error message, different file. The model: "Last time this was a null pointer after the refactor." Fixed in seconds.
+**El déjà vu del error.** El mismo mensaje de error, distinto archivo. El modelo: "La última vez fue un null pointer después del refactor." Arreglado en segundos.
 
 ## 🚀 Installation
 
