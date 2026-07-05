@@ -11,8 +11,11 @@
 ## 💡 What it does
 
 - **Single-file plugin** — one TypeScript file (595 lines), Bun's built-in `bun:sqlite` and `node:crypto`. No `npm install`, no `node_modules`, no drama.
+
 - **Automatic storage** — every turn saved with dedup by `session_id + content_hash`. DCP/system/thinking/tool tags stripped before indexing. Boring, reliable, background.
+
 - **Cross-project FTS** — SQLite FTS5 with `unicode61 remove_diacritics 1`. No `session_id` filter — searches every memory across every project. Typo-tolerant prefix search included.
+
 - **Smart recall pipeline** — FTS relevance × 3× user boost × recency decay → pair recall (user + assistant) → age filter (in SQL) → overlap filter (Jaccard) → dedup (Jaccard) → token budget (`max_tokens_memory: 2000`). Only the best context makes the cut.
 
 ## 🔄 How it works
