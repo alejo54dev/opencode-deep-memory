@@ -4,44 +4,73 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
-> OpenCode plugin — SQLite FTS5 memory. Tiny footprint, massive recall.
-> Stores every turn, cross-session, no pruning.
-> Small package, big thoughts. A growing stack that never forgets.
+> Every turn, stored for life. Recall when it matters — cross-project, cross-session, full-text.
+> Your AI remembers. You just need to teach it to ask.
 
 ## 🧠 What it is
 
-- **`experimental.chat.messages.transform`** — stores each turn (deduped by `session_id + content_hash`) into SQLite. Strips DCP/system/thinking/tool tags before indexing.
-- **`experimental.chat.system.transform`** — appends a reminder to use the `deep_memory_recall` tool.
-- **`tool.deep_memory_recall`** — FTS5 search across the **entire DB** (cross-session, no session filter). Returns ranked hits with pair recall (user + following assistant), overlap filter, dedup, and token-budgeted compression.
-- **`dispose`** — closes DB with WAL checkpoint, removes exit listener.
+Three hooks. One job.
+
+- **`experimental.chat.messages.transform`** — stores every turn (deduped by `session_id + content_hash`) into SQLite. Strips DCP/system/thinking/tool tags before indexing. Quiet, automatic, boring. Just how storage should be.
+- **`experimental.chat.system.transform`** — appends a one-line reminder so the model knows `deep_memory_recall()` exists. That's it. No auto-injection, no 2000-token surprise. The model has to *want* to remember.
+- **`tool.deep_memory_recall`** — FTS5 search across the **entire DB** (no session filter — yes, it's cross-project). Returns ranked hits with pair recall (user + following assistant), overlap filter, dedup, and token-budgeted compression.
+- **`dispose`** — WAL checkpoint, close DB, remove exit listener. Clean break.
 
 ## 🔄 How it works
 
 ```mermaid
 flowchart TD
-    A["📥 Message arrives"] --> B["💾 Store turn in SQLite<br/>(dedup by session+hash)"]
-    B --> C{"🧠 Model calls<br/>deep_memory_recall"}
-    C --> D["🔍 FTS5 search<br/>(cross-session)"]
-    D --> E["🔗 Pair recall"]
-    E --> F["⏳ Age / Overlap filter"]
-    F --> G["🎯 Dedup + Token budget"]
-    G --> H["📎 &lt;deep-memory&gt; injected<br/>into context"]
+    A["📥 Every turn"] --> B["💾 Auto-stored in SQLite<br/>(dedup by session+hash)"]
+    A --> C["💬 System prompt gets a<br/>one-line tool reminder"]
+
+    D{"🤖 Model calls<br/>deep_memory_recall()?"}
+    D -->|"Yes"| E["🔍 FTS5 search<br/>cross-session, cross-project"]
+    E --> F["🔗 Pair recall<br/>(user hit → assistant follows)"]
+    F --> G["⏳ Age filter<br/>(SQL WHERE clause)"]
+    G --> H["🔄 Overlap filter<br/>(vs recent turns)"]
+    H --> I["🎯 Dedup + Token budget<br/>(compress, trim, rank)"]
+    I --> J["📎 &lt;deep-memory&gt; block<br/>returned to model"]
+    D -->|"No"| K["💬 Normal response"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#16213e,stroke:#0f3460,color:#fff
-    style C fill:#16213e,stroke:#e94560,color:#fff
-    style D fill:#0f3460,stroke:#53a8b6,color:#fff
+    style C fill:#16213e,stroke:#0f3460,color:#fff
+    style D fill:#16213e,stroke:#e94560,color:#fff
     style E fill:#0f3460,stroke:#53a8b6,color:#fff
     style F fill:#0f3460,stroke:#53a8b6,color:#fff
     style G fill:#0f3460,stroke:#53a8b6,color:#fff
-    style H fill:#1a1a2e,stroke:#e94560,color:#fff
+    style H fill:#0f3460,stroke:#53a8b6,color:#fff
+    style I fill:#0f3460,stroke:#53a8b6,color:#fff
+    style J fill:#1a1a2e,stroke:#e94560,color:#fff
+    style K fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
-
-> The `system.transform` hook appends a `deep_memory_recall()` reminder each turn.
 
 ## 🏗️ Philosophy: stack-first
 
-Memory is a **growing stack**, not a bounded cache. Every turn is stored, no pruning. FTS searches the whole DB (`fts_results: 20`) and injects up to `max_tokens_memory: 2000` tokens of compressed context at the front of the system prompt on every turn. The goal: thousands of records accumulate, FTS finds relevant context across the entire history, and the model always sees relevant past facts at the front of its working memory.
+Memory is a **growing stack**, not a bounded cache. Everything is stored, nothing is pruned. The DB grows. The stack grows. Over time, thousands of turns accumulate.
+
+Reading the stack is **proactive**, not automatic. The system prompt only carries a short reminder — the model must call `deep_memory_recall()` when it needs context. No forced injection, no token budget burned on irrelevant memories.
+
+When the tool fires, the pipeline is straightforward:
+
+- **FTS searches the whole stack** — `fts_results: 20` returns ranked hits, scored by FTS relevance × role weight (user hits get 3× boost) × recency decay (30-day half-life).
+- **Pair recall** — every matching user turn brings its assistant follow-up. Context in pairs, not fragments.
+- **Age filter** — `max_age_days` lives in SQL, not JS. Young results don't get pushed out by old ones.
+- **Overlap filter** — recent conversation turns (up to `overlap_window: 8`) are compared via Jaccard similarity. If a hit repeats what was just said, it's out.
+- **Dedup + budget** — within the remaining hits, similar content (Jaccard > `dedup_threshold: 0.6`) is collapsed. Then the top-ranked snippets fill the `max_tokens_memory: 2000` budget, truncated at `max_snippet_chars: 250`.
+- **Cross-project** — the FTS query has no `session_id` filter. Searches everything. Always.
+
+The result: a `<deep-memory>` block with the most relevant past context, curated and compressed. No auto-injection. No bloat.
+
+## 🎯 Use cases
+
+**Cross-project déjà vu.** You fixed a race condition in project A two months ago. Now you're debugging a similar issue in project B. The model recalls the exact fix pattern. Minutes saved: 30+.
+
+**Architecture archaeology.** "Why did we choose SQLite over Postgres?" The model remembers the discussion from three sessions ago. No Slack digging, no git blame spelunking.
+
+**Onboarding time machine.** A new feature touches code you discussed weeks ago. The model recalls the context, the trade-offs, the rejected alternatives. Old debates stay settled.
+
+**Bug déjà vu.** Same error message, different file. The model: "Last time this was a null pointer after the refactor." Fixed in seconds.
 
 ## 🚀 Build
 
@@ -85,7 +114,7 @@ cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 
 ## 💬 Notes
 
-Less is more. :)
+No notes. Just memories.
 
 ## 👤 Authors
 
