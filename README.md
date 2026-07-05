@@ -64,13 +64,13 @@ The result: a `<deep-memory>` block with the most relevant past context, curated
 
 ## 🎯 Use cases
 
-**Cross-project déjà vu.** You fixed a race condition in project A two months ago. Now you're debugging a similar issue in project B. The model recalls the exact fix pattern. Minutes saved: 30+.
+**History repeats.** You fixed a race condition in project A two months ago. Now you're debugging a similar issue in project B. The model recalls the exact fix pattern. Minutes saved: 30+.
 
 **Architecture archaeology.** "Why did we choose SQLite over Postgres?" The model remembers the discussion from three sessions ago. No Slack digging, no git blame spelunking.
 
 **Onboarding time machine.** A new feature touches code you discussed weeks ago. The model recalls the context, the trade-offs, the rejected alternatives. Old debates stay settled.
 
-**Bug déjà vu.** Same error message, different file. The model: "Last time this was a null pointer after the refactor." Fixed in seconds.
+**Bug backtrack.** Same error message, different file. The model: "Last time this was a null pointer after the refactor." Fixed in seconds.
 
 ## 🚀 Build
 
@@ -114,7 +114,7 @@ cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 
 ## 💬 Notes
 
-No notes. Just memories.
+Less is more. :)
 
 ## 👤 Authors
 
