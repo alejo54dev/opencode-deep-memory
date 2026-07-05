@@ -20,14 +20,18 @@ Three hooks. One job.
 
 ```mermaid
 flowchart TD
-    A["📥 Every turn"] --> B["💾 Store + Reminder"]
-    C["🔍 FTS → Pair → Age → Overlap → Dedup"] --> D["📎 &lt;deep-memory&gt;"]
-    B -.->|"deep_memory_recall()"| C
+    A["📥 Messages pass through"] --> B["💾 Auto-store + Reminder"]
+    B --> C{"deep_memory_recall()<br/>called?"}
+    C -->|"✅ Yes"| D["🔍 FTS → Pair → Age →<br/>Overlap → Dedup → Budget"]
+    D --> E["📎 &lt;deep-memory&gt;<br/>returned"]
+    C -->|"❌ No"| F["💬 Normal response"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
-    style B fill:#16213e,stroke:#0f3460,color:#fff
-    style C fill:#0f3460,stroke:#53a8b6,color:#fff
-    style D fill:#1a1a2e,stroke:#e94560,color:#fff
+    style B fill:#0f3460,stroke:#53a8b6,color:#fff
+    style C fill:#16213e,stroke:#e94560,color:#fff
+    style D fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E fill:#1a1a2e,stroke:#e94560,color:#fff
+    style F fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ## 🏗️ Philosophy: stack-first
