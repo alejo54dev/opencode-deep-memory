@@ -21,17 +21,13 @@ Three hooks. One job.
 ```mermaid
 flowchart LR
     A["📥 Every turn"] --> B["💾 Store + Reminder"]
-    B --> C{"deep_memory_recall()?"}
-    C -->|Yes| D["🔍 FTS → Pair → Age → Overlap → Dedup"]
-    D --> E["📎 &lt;deep-memory&gt;"]
-    C -->|No| F["💬 Normal"]
+    B -.->|"deep_memory_recall()"| C["🔍 FTS → Pair → Age → Overlap → Dedup"]
+    C --> D["📎 &lt;deep-memory&gt;"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#16213e,stroke:#0f3460,color:#fff
-    style C fill:#16213e,stroke:#e94560,color:#fff
-    style D fill:#0f3460,stroke:#53a8b6,color:#fff
-    style E fill:#1a1a2e,stroke:#e94560,color:#fff
-    style F fill:#1a1a2e,stroke:#e94560,color:#fff
+    style C fill:#0f3460,stroke:#53a8b6,color:#fff
+    style D fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ## 🏗️ Philosophy: stack-first
