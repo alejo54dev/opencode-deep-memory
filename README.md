@@ -19,30 +19,19 @@ Three hooks. One job.
 ## 🔄 How it works
 
 ```mermaid
-flowchart TD
-    A["📥 Every turn"] --> B["💾 Auto-stored in SQLite<br/>(dedup by session+hash)"]
-    A --> C["💬 System prompt gets a<br/>one-line tool reminder"]
-
-    D{"🤖 Model calls<br/>deep_memory_recall()?"}
-    D -->|"Yes"| E["🔍 FTS5 search<br/>cross-session, cross-project"]
-    E --> F["🔗 Pair recall<br/>(user hit → assistant follows)"]
-    F --> G["⏳ Age filter<br/>(SQL WHERE clause)"]
-    G --> H["🔄 Overlap filter<br/>(vs recent turns)"]
-    H --> I["🎯 Dedup + Token budget<br/>(compress, trim, rank)"]
-    I --> J["📎 &lt;deep-memory&gt; block<br/>returned to model"]
-    D -->|"No"| K["💬 Normal response"]
+flowchart LR
+    A["📥 Every turn"] --> B["💾 Store + Reminder"]
+    B --> C{"deep_memory_recall()?"}
+    C -->|Yes| D["🔍 FTS → Pair → Age → Overlap → Dedup"]
+    D --> E["📎 &lt;deep-memory&gt;"]
+    C -->|No| F["💬 Normal"]
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#16213e,stroke:#0f3460,color:#fff
-    style C fill:#16213e,stroke:#0f3460,color:#fff
-    style D fill:#16213e,stroke:#e94560,color:#fff
-    style E fill:#0f3460,stroke:#53a8b6,color:#fff
-    style F fill:#0f3460,stroke:#53a8b6,color:#fff
-    style G fill:#0f3460,stroke:#53a8b6,color:#fff
-    style H fill:#0f3460,stroke:#53a8b6,color:#fff
-    style I fill:#0f3460,stroke:#53a8b6,color:#fff
-    style J fill:#1a1a2e,stroke:#e94560,color:#fff
-    style K fill:#1a1a2e,stroke:#e94560,color:#fff
+    style C fill:#16213e,stroke:#e94560,color:#fff
+    style D fill:#0f3460,stroke:#53a8b6,color:#fff
+    style E fill:#1a1a2e,stroke:#e94560,color:#fff
+    style F fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ## 🏗️ Philosophy: stack-first
