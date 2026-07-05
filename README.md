@@ -18,6 +18,14 @@
 
 - **Smart recall pipeline** — FTS relevance × 3× user boost × recency decay → pair recall (user + assistant) → age filter (in SQL) → overlap filter (Jaccard) → dedup (Jaccard) → token budget (`max_tokens_memory: 2000`). Only the best context makes the cut.
 
+## 🧠 Philosophy
+
+Memory is a **growing stack**, not a bounded cache. Everything stored, nothing pruned. The DB grows, the stack grows, thousands of turns accumulate.
+
+Reading the stack is **proactive**, not automatic. The system prompt carries a one-line reminder — the model must call `deep_memory_recall()` when it needs context. No forced injection, no tokens wasted on irrelevant noise.
+
+When the tool fires, the pipeline curates: FTS across the entire DB → pair + age + overlap + dedup + budget → a `<deep-memory>` block with the most relevant past. Cross-project, always.
+
 ## 🔄 How it works
 
 ```mermaid
@@ -44,14 +52,6 @@ flowchart TD
     style H fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-## 🧠 Philosophy
-
-Memory is a **growing stack**, not a bounded cache. Everything stored, nothing pruned. The DB grows, the stack grows, thousands of turns accumulate.
-
-Reading the stack is **proactive**, not automatic. The system prompt carries a one-line reminder — the model must call `deep_memory_recall()` when it needs context. No forced injection, no tokens wasted on irrelevant noise.
-
-When the tool fires, the pipeline curates: FTS across the entire DB → pair + age + overlap + dedup + budget → a `<deep-memory>` block with the most relevant past. Cross-project, always.
-
 ## 🎯 Use cases
 
 **History repeats.** You fixed a race condition in project A two months ago. Now you're debugging a similar issue in project B. The model recalls the exact fix pattern. Minutes saved: 30+.
@@ -72,7 +72,7 @@ The plugin loads automatically when OpenCode starts. No manual registration requ
 
 ## ⚙️ Configuration
 
-`~/.config/opencode/deep-memory.json`:
+Copy `deep-memory.json` (included in this repo) to `~/.config/opencode/` and edit:
 
 ```json
 {
