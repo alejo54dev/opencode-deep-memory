@@ -331,8 +331,7 @@ class Storage
 					const next = this.stmtNextTurn.get( hit.id ) as MemoryHit | undefined;
 					if ( next && !seenIds.has( next.id ) )
 					{
-						( next as any ).rank = hit.rank;
-						expanded.push( next );
+						expanded.push( { ...next, rank: hit.rank } );
 						seenIds.add( next.id );
 					}
 				}
@@ -444,8 +443,9 @@ function compressMemories(
 		let snippet = h.content.trim();
 		if ( snippet.length > maxSnippetChars )
 		{
-			const match = snippet.match( /^(.{80,250}[.!?])\s/ );
-			snippet = match ? match[ 1 ] + " (+)" : snippet.substring( 0, maxSnippetChars ) + "…";
+			const truncated = snippet.slice( 0, maxSnippetChars );
+			const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ );
+			snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…";
 		}
 
 		const line = h.role === "assistant"
@@ -511,13 +511,9 @@ export default ( async ( ctx: PluginInput ) =>
 						const recent = storage.getRecentTurns( sessionId, opts.overlap_window );
 						const hits = storage.searchMemories( args.query, limit, opts.max_age_days );
 
-						if ( hits.length === 0 )
-							return "<deep-memory>\n(no matches found)\n</deep-memory>";
-
-						const overlapWindow = recent;
 						const filteredHits = hits.filter( hit =>
 						{
-							for ( const turn of overlapWindow )
+							for ( const turn of recent )
 							{
 								if ( contentOverlap( hit.content, turn.content ) > opts.overlap_threshold )
 									return false;
@@ -525,12 +521,11 @@ export default ( async ( ctx: PluginInput ) =>
 							return true;
 						} );
 
-						if ( filteredHits.length === 0 )
-							return "<deep-memory>\n(no matches found)\n</deep-memory>";
-
-						const contextStr = compressMemories(
-							filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
-						);
+						const contextStr = filteredHits.length === 0
+							? ""
+							: compressMemories(
+								filteredHits, opts.max_tokens_memory, opts.dedup_threshold, opts.max_snippet_chars
+							);
 
 						if ( !contextStr )
 							return "<deep-memory>\n(no matches found)\n</deep-memory>";
