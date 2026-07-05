@@ -60,7 +60,7 @@ flowchart TD
 
 **Time machine.** A new feature touches code you discussed weeks ago. The model brings the context, the trade-offs, the discarded alternatives. Old debates, settled.
 
-**Error déjà vu.** Same error message, different file. The model: "Last time it was a null pointer after the refactor." Fixed in seconds.
+**Bug backtrack.** Same error message, different file. The model: "Last time it was a null pointer after the refactor." Fixed in seconds.
 
 ## 🚀 Installation
 
