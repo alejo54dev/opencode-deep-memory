@@ -54,7 +54,7 @@ flowchart TD
 
 ## 🎯 Use cases
 
-**Déjà vu.** You fixed a bug in project A two months ago. Now project B has something similar. The model remembers and hands you the fix. 30 minutes saved.
+**History repeats.** You fixed a bug in project A two months ago. Now project B has something similar. The model remembers and hands you the fix. 30 minutes saved.
 
 **The "why we used SQLite".** You discussed it three sessions ago. The model knows. No more Slack digging or git blame archaeology.
 
