@@ -22,7 +22,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.24
+ *	@version 1.0.25
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -67,12 +67,22 @@ const LOG_LEVEL =
 
 const STRIP_PATTERNS =
 [
-	/<dcp-message-id>[\s\S]*?<\/dcp-message-id>/g,
+	/[\s\S]*?<\/dcp-message-id>/g,
 	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
 	/<system>[\s\S]*?<\/system>/g,
 	/<thinking>[\s\S]*?<\/thinking>/g,
 	/<tool_result>[\s\S]*?<\/tool_result>/g,
+	/<conversation-checkpoint>[\s\S]*?<\/conversation-checkpoint>/g,
+	/<previous-summary>[\s\S]*?<\/previous-summary>/g,
+	/<template>[\s\S]*?<\/template>/g,
+	/<env>[\s\S]*?<\/env>/g,
+	/<available_skills>[\s\S]*?<\/available_skills>/g,
+	/<available_references>[\s\S]*?<\/available_references>/g,
+	/<mcp_instructions>[\s\S]*?<\/mcp_instructions>/g,
+	/\[Tool output truncated/g,
+	/\[Old tool result/g,
 	/▣\s*(?:DCP|Compression)[\s\S]*/g,
+	/\[Compressed[\s\S]*/g,
 ];
 
 
