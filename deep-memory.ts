@@ -22,7 +22,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.25
+ *	@version 1.0.26
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -67,7 +67,7 @@ const LOG_LEVEL =
 
 const STRIP_PATTERNS =
 [
-	/[\s\S]*?<\/dcp-message-id>/g,
+	/<dcp-message-id>[\s\S]*?<\/dcp-message-id>/g,
 	/<system-reminder>[\s\S]*?<\/system-reminder>/g,
 	/<system>[\s\S]*?<\/system>/g,
 	/<thinking>[\s\S]*?<\/thinking>/g,
@@ -84,7 +84,6 @@ const STRIP_PATTERNS =
 	/▣\s*(?:DCP|Compression)[\s\S]*/g,
 	/\[Compressed[\s\S]*/g,
 ];
-
 
 // ─── Interfaces ────────────────────────────────────────────────────────────
 
@@ -282,7 +281,7 @@ class Storage
 		{
 			for ( const m of msgs )
 			{
-				const text = normalizeContent( m.text );
+				const text = m.role === "user" ? m.text.trim() : normalizeContent( m.text );
 				if ( !text ) continue;
 				const result = this.stmtInsert.run(
 					sessionId, m.role, text, hashContent( m.role, text )
