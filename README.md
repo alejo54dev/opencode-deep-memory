@@ -4,27 +4,27 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
-> Tu AI tiene amnesia. Cada sesión arranca de cero. Repites configuraciones, decisiones, bugs que ya arreglaste.
+> Your AI has amnesia. Every session starts from scratch. You repeat configs, decisions, bugs you already fixed.
 
 ## 💡 What it does
 
-> Tu AI debería recordar. Punto.
+> Your AI should remember. Period.
 
-- **Copia y funciona** — 595 líneas, bun:sqlite nativo. Sin npm, sin node_modules, sin drama.
+- **Copy and it works** — 595 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
-- **Memoria automática** — cada mensaje se guarda solo. Tags inservibles se limpian. Tú no haces nada.
+- **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
-- **Busca entre proyectos** — el bug que resolviste la semana pasada aparece solo. SQLite FTS5, tolerante a errores de tipeo.
+- **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Pipeline inteligente** — relevancia × peso × antigüedad → par usuario/respuesta → solo el contexto justo.
+- **Smart pipeline** — relevance × weight × age → user/response pair → just the right context.
 
 ## 🧠 Philosophy
 
-La memoria es una pila que crece, no un caché que se limpia. Todo se guarda, nada se poda.
+Memory is a growing stack, not a cache that gets cleaned. Everything saved, nothing pruned.
 
-El modelo decide cuándo preguntar. Una línea en el system prompt le recuerda que existe `deep_memory_recall()`. Sin inyección forzada, sin tokens desperdiciados en ruido.
+The model decides when to ask. A single line in the system prompt reminds it about `deep_memory_recall()`. No forced injection, no tokens wasted on noise.
 
-Cuando pregunta, el pipeline busca en toda la DB — entre proyectos, entre sesiones, entre meses — y devuelve solo lo que importa.
+When it asks, the pipeline searches the entire DB — across projects, across sessions, across months — and returns only what matters.
 
 ## 🔄 How it works
 
@@ -52,15 +52,15 @@ flowchart TD
     style H fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-## 🎯 Casos de uso
+## 🎯 Use cases
 
-**El déjà vu.** Arreglaste un bug en el proyecto A hace dos meses. Ahora en el proyecto B pasa algo similar. El modelo lo recuerda y te da la solución. 30 minutos ahorrados.
+**Déjà vu.** You fixed a bug in project A two months ago. Now project B has something similar. The model remembers and hands you the fix. 30 minutes saved.
 
-**El "por qué usamos SQLite".** Lo discutieron hace tres sesiones. El modelo lo sabe. No más buscar en Slack ni hacer arqueología en git blame.
+**The "why we used SQLite".** You discussed it three sessions ago. The model knows. No more Slack digging or git blame archaeology.
 
-**La máquina del tiempo.** Una feature nueva toca código que ya hablaste hace semanas. El modelo trae el contexto, los trade-offs, las alternativas descartadas. Viejos debates, ya saldados.
+**Time machine.** A new feature touches code you discussed weeks ago. The model brings the context, the trade-offs, the discarded alternatives. Old debates, settled.
 
-**El déjà vu del error.** El mismo mensaje de error, distinto archivo. El modelo: "La última vez fue un null pointer después del refactor." Arreglado en segundos.
+**Error déjà vu.** Same error message, different file. The model: "Last time it was a null pointer after the refactor." Fixed in seconds.
 
 ## 🚀 Installation
 
