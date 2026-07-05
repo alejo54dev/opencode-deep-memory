@@ -98,6 +98,24 @@ Copy `deep-memory.json` (included in this repo) to `~/.config/opencode/` and edi
 | `overlap_window` | `8` | Recent turns to compare against for overlap filter |
 | `max_snippet_chars` | `250` | Max chars per snippet before truncation |
 
+## 🪵 Logs
+
+`~/.config/opencode/deep-memory.log` (append-only). Format: `[ISO_TIMESTAMP] [LEVEL] message`.
+
+```bash
+tail -f ~/.config/opencode/deep-memory.log
+```
+
+```log
+[2026-07-05T10:30:00.000Z] [INFO]: Config loaded
+[2026-07-05T10:30:01.000Z] [INFO]: Initialized | session: abc123def456
+[2026-07-05T10:35:12.000Z] [INFO]: Stored: 2 turns
+[2026-07-05T10:40:23.000Z] [INFO]: Stored: 5 turns
+[2026-07-05T10:45:00.000Z] [INFO]: Disposed | session: abc123def456
+[2026-07-05T10:50:00.000Z] [ERROR]: deep_memory_recall: retry later
+[2026-07-05T10:55:00.000Z] [ERROR]: messages.transform: insert failed
+```
+
 ## 💬 Notes
 
 Less is more. :)
