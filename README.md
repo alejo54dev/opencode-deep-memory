@@ -16,7 +16,7 @@
 
 - **Cross-project FTS** — SQLite FTS5 with `unicode61 remove_diacritics 1`. No `session_id` filter — searches every memory across every project. Typo-tolerant prefix search included.
 
-- **Smart recall pipeline** — FTS relevance × 3× user boost × recency decay → pair recall (user + assistant) → age filter (in SQL) → overlap filter (Jaccard) → dedup (Jaccard) → token budget (`max_tokens_memory: 2000`). Only the best context makes the cut.
+- **Smart recall pipeline** — FTS relevance × 3× user boost × recency decay. Then pair recall (user + assistant), age filter (in SQL), overlap and dedup (Jaccard), and finally token budget (`max_tokens_memory: 2000`). Only the best context makes the cut.
 
 ## 🧠 Philosophy
 
@@ -24,7 +24,7 @@ Memory is a **growing stack**, not a bounded cache. Everything stored, nothing p
 
 Reading the stack is **proactive**, not automatic. The system prompt carries a one-line reminder — the model must call `deep_memory_recall()` when it needs context. No forced injection, no tokens wasted on irrelevant noise.
 
-When the tool fires, the pipeline curates: FTS across the entire DB → pair + age + overlap + dedup + budget → a `<deep-memory>` block with the most relevant past. Cross-project, always.
+When the tool fires, the pipeline curates: FTS across the entire DB → pair + age + overlap + dedup + budget → a `<deep-memory>` block with the most relevant past context. Cross-project, always.
 
 ## 🔄 How it works
 
@@ -112,7 +112,7 @@ tail -f ~/.config/opencode/deep-memory.log
 [2026-07-05T10:35:12.000Z] [INFO]: Stored: 2 turns
 [2026-07-05T10:40:23.000Z] [INFO]: Stored: 5 turns
 [2026-07-05T10:45:00.000Z] [INFO]: Disposed | session: abc123def456
-[2026-07-05T10:50:00.000Z] [ERROR]: deep_memory_recall: retry later
+[2026-07-05T10:50:00.000Z] [ERROR]: deep_memory_recall: connection timeout
 [2026-07-05T10:55:00.000Z] [ERROR]: messages.transform: insert failed
 ```
 
