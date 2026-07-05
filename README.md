@@ -22,20 +22,26 @@
 
 ```mermaid
 flowchart TD
-    A["📥 Messages pass through"]
-    A --> B["💾 Auto-store + Reminder"]
-    B --> C{"deep_memory_recall()<br/>called?"}
-    C -->|"✅ Yes"| D["🔍 FTS → Pair recall →<br/>Age → Overlap →<br/>Dedup → Token budget"]
-    D --> E["📎 &lt;deep-memory&gt;<br/>returned"]
-    C -->|"❌ No"| F["💬 Normal response"]
-    E ~~~ F
+    A["📝 Messages flow<br/>through hook"]
+    A --> B["💾 Auto-store in SQLite<br/>Dedup + strip tags"]
+    B --> C["📎 System prompt gets<br/>tool reminder"]
+
+    C --> D{"Model calls<br/>deep_memory_recall()?"}
+    D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
+    E --> F["Rank × Weight × Decay<br/>→ Pair → Age → Overlap<br/>→ Dedup → Budget"]
+    F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
+    D -.->|"❌ No"| H["💬 Normal response"]
+    G -.-> H
+    H -.-> A
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#0f3460,stroke:#53a8b6,color:#fff
-    style C fill:#16213e,stroke:#e94560,color:#fff
-    style D fill:#0f3460,stroke:#53a8b6,color:#fff
-    style E fill:#1a1a2e,stroke:#e94560,color:#fff
-    style F fill:#1a1a2e,stroke:#e94560,color:#fff
+    style C fill:#0f3460,stroke:#53a8b6,color:#fff
+    style D fill:#16213e,stroke:#e94560,color:#fff
+    style E fill:#0f3460,stroke:#53a8b6,color:#fff
+    style F fill:#0f3460,stroke:#53a8b6,color:#fff
+    style G fill:#1a1a2e,stroke:#e94560,color:#fff
+    style H fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ## 🧠 Philosophy
