@@ -25,7 +25,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 2.0.6
+*	@version 2.0.7
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -217,10 +217,10 @@ function isValidRole( role: string ) : boolean
 	return [ "user", "assistant" ].includes( role ) ;
 }
 
-// SHA-1 hex of role + normalized content (lowercase hash for case-insensitive dedup)
+// MD5 hex of role + normalized content (lowercase hash for case-insensitive dedup)
 function hashContent( role: string, content: string ) : string
 {
-	return createHash( "sha1" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
+	return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
 }
 
 // Extract structured tags from content: file paths, backtick refs, URLs
