@@ -10,7 +10,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 716 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 714 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
@@ -106,20 +106,18 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 
 ## 🪵 Logs
 
-`~/.config/opencode/deep-memory.log` (append-only). Format: `[ISO_TIMESTAMP] [LEVEL] message`.
+`~/.config/opencode/deep-memory.log` (append-only). Format: `[TIMESTAMP] [LEVEL] message`.
 
 ```bash
 tail -f ~/.config/opencode/deep-memory.log
 ```
 
 ```log
-[2026-07-05T10:30:00.000Z] [INFO]: Config loaded
-[2026-07-05T10:30:01.000Z] [INFO]: Initialized at 2026-07-05T10:30:01
-[2026-07-05T10:35:12.000Z] [INFO]: Stored: 1 record
-[2026-07-05T10:40:23.000Z] [INFO]: Stored: 1 record
-[2026-07-05T10:45:00.000Z] [INFO]: Disposed at 2026-07-05T10:45:00
-[2026-07-05T10:50:00.000Z] [ERROR]: memory_search: connection timeout
-[2026-07-05T10:55:00.000Z] [ERROR]: messages.transform: insert failed
+[2026-07-05T10:30:00] [INFO]: Config loaded
+[2026-07-05T10:30:01] [INFO]: Initialized
+[2026-07-05T10:35:12] [INFO]: Stored: 1 record
+[2026-07-05T10:40:23] [INFO]: Stored: 1 record
+[2026-07-05T10:45:00] [INFO]: Disposed
 ```
 
 ## 💬 Notes

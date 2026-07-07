@@ -147,7 +147,17 @@ interface MessageLike
 	parts: Array<{ type: string; text?: string }> ;
 }
 
-// ─── Config ─────────────────────────────────────────────────────────────────
+// ─── Global Helpers ──────────────────────────────────────────────────────────
+
+// Current local datetime as ISO-like string: "2026-07-06T20:30:26"
+function timestamp() : string
+{
+	const utc    = new Date() ;
+	const offset = utc.getTimezoneOffset() ;
+	const local  = new Date( utc.getTime() - offset * 60 * 1000 ) ;
+
+	return local.toISOString().slice( 0, 19 ) ;
+}
 
 // Load config from ~/.config/opencode/deep-memory.json, fall back to defaults
 function loadConfig()
@@ -183,8 +193,6 @@ function loadConfig()
 	return opts ;
 }
 
-// ─── Logger ────────────────────────────────────────────────────────────────
-
 // Append timestamped entry to ~/.config/opencode/deep-memory.log
 function log( level : number, message : string ) : void
 {
@@ -196,7 +204,7 @@ function log( level : number, message : string ) : void
 
 	try
 	{
-		appendFileSync( LOG_FILE, `[${ new Date().toISOString() }] [${ label }]: ${ message }\n` ) ;
+		appendFileSync( LOG_FILE, `[${ timestamp() }] [${ label }]: ${ message }\n` ) ;
 	}
 	catch {}
 }
@@ -369,16 +377,6 @@ function extractText( msg: MessageLike ) : string
 	}
 
 	return parts.join( "\n" ).trim() ;
-}
-
-// Current local datetime as ISO-like string: "2026-07-06T20:30:26"
-function timestamp() : string
-{
-	const utc    = new Date() ;
-	const offset = utc.getTimezoneOffset() ;
-	const local  = new Date( utc.getTime() - offset * 60 * 1000 ) ;
-
-	return local.toISOString().slice( 0, 19 ) ;
 }
 
 // ─── Storage ───────────────────────────────────────────────────────────────
@@ -659,7 +657,7 @@ class DeepMemory
 	dispose() : void
 	{
 		this.storage.close() ;
-		log( LOG_LEVEL.INFO, `Disposed at ${ timestamp() }` ) ;
+		log( LOG_LEVEL.INFO, "Disposed" ) ;
 	}
 }
 
@@ -671,7 +669,7 @@ export default ( async ( _ctx: PluginInput ) =>
 	const storage   = Storage.open() ;
 	const dm        = new DeepMemory( opts, storage ) ;
 
-	log( LOG_LEVEL.INFO, `Initialized at ${ timestamp() }` ) ;
+	log( LOG_LEVEL.INFO, "Initialized" ) ;
 
 	return {
 		tool: {
