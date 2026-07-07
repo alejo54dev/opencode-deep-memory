@@ -183,6 +183,12 @@ function log( level : number, message : string ) : void
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 // SHA-1 hex of role + content — dedup key for storeTurns
+function isValidRole( role: string ): boolean
+{
+	return ["user", "assistant"].includes( role );
+}
+
+
 function hashContent( role: string, content: string ): string
 {
 	return createHash( "sha1" ).update( role + ":" + content ).digest( "hex" ) ;
@@ -572,6 +578,8 @@ class DeepMemory
 
 			for ( const msg of output.messages )
 			{
+				if ( !isValidRole( msg.info.role ) ) continue ;
+
 				const text = extractText( msg as MessageLike ) ;
 				if ( !text ) continue ;
 
