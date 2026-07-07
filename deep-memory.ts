@@ -44,10 +44,10 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 const CONFIG =
 {
-	fts_results:        5,
-	max_tokens_memory:  2000,
-	max_snippet_chars:  3000,
-	max_age_days:       3000,
+	fts_results:        5,      // max FTS results returned per search call
+	max_tokens_memory:  2000,   // max tokens consumed by memory recall block
+	max_snippet_chars:  3000,   // max chars per memory snippet in recall output
+	max_age_days:       3000,   // 0 = forever, max age of records to consider
 	log_level:          "info" as "silent" | "error" | "info" | "debug",
 };
 
