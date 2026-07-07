@@ -22,7 +22,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.34
+*	@version 1.0.35
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -182,18 +182,17 @@ function log( level : number, message : string ) : void
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// SHA-1 hex of role + content — dedup key for storeTurns
+// Only valid role
 function isValidRole( role: string ): boolean
 {
-	return ["user", "assistant"].includes( role );
+	return [ "user", "assistant" ].includes( role ) ;
 }
 
-
+// SHA-1 hex of role + content — dedup key for storeTurns
 function hashContent( role: string, content: string ): string
 {
 	return createHash( "sha1" ).update( role + ":" + content ).digest( "hex" ) ;
 }
-
 
 // Strip DCP/system/thinking/tool tags and normalize to lowercase for FTS indexing
 function normalizeContent( raw: string | undefined ): string
