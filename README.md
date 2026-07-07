@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-2.0.7-blue)
+![Version](https://img.shields.io/badge/version-1.0.41-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -10,13 +10,13 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 714 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 573 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — relevance × weight × age → user/response pair → just the right context.
+- **Smart pipeline** — BM25F × role weight (user×3) → age gate → dedup → token budget.
 
 ## 🧠 Philosophy
 
@@ -36,7 +36,7 @@ flowchart TD
 
     C --> D{"Model calls<br/>memory_search()?"}
     D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
-    E --> F["Rank × Weight × Decay<br/>→ Expanded → Overlap<br/>→ Dedup → Budget"]
+    E --> F["Rank × Role Weight<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
     F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
     D -.->|"❌ No"| H["💬 Normal response"]
     G -.-> H
@@ -76,33 +76,21 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 
 ```jsonc
 {
-	"fts_results": 20,          // max FTS results returned per search call
-	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
-	"max_age_days": 3000,       // 0 = forever, max age of records to consider
-	"overlap_threshold": 0.5,   // Jaccard sim threshold to filter overlapping hits
-	"dedup_threshold": 0.6,     // Jaccard sim threshold to deduplicate within recall
-	"overlap_window": 8,        // number of recent records checked for overlap
-	"max_snippet_chars": 250,   // max chars per memory snippet in recall output
-	"context_window": 2,        // ±N surrounding records per FTS hit (0 = off)
-	"entity_weight": 3.0,       // BM25F weight for entities column (≥ 1.0)
-	"recency_halflife": 30,     // exponential decay half-life in days
-	"log_level": "info",        // "silent" | "error" | "info" | "debug"
+	"fts_results": 5,
+	"max_tokens_memory": 2000,
+	"max_age_days": 3000,
+	"max_snippet_chars": 3000,
+	"log_level": "info"
 }
 ```
 
 | Field | Default | Description |
 |---|---|---|
-| `fts_results` | `20` | Max FTS results per search |
+| `fts_results` | `5` | Max FTS results per search |
 | `max_tokens_memory` | `2000` | Token budget for compressed context |
 | `max_age_days` | `3000` | Max age of recalled memories (`0` = forever) |
+| `max_snippet_chars` | `3000` | Max chars per snippet before truncation |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
-| `overlap_threshold` | `0.5` | Jaccard similarity threshold for overlap filter |
-| `dedup_threshold` | `0.6` | Jaccard similarity threshold for dedup within recall |
-| `overlap_window` | `8` | Recent records to compare against for overlap filter |
-| `max_snippet_chars` | `250` | Max chars per snippet before truncation |
-| `context_window` | `2` | ±N surrounding records per FTS hit (`0` = off) |
-| `entity_weight` | `3.0` | BM25F weight for entities column (≥ 1.0) |
-| `recency_halflife` | `30` | Exponential decay half-life in days |
 
 ## 🪵 Logs
 
@@ -131,4 +119,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 2.0.7
+MIT — version 1.0.41

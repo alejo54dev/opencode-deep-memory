@@ -1,13 +1,7 @@
 {
-	"fts_results": 20,          // max FTS results returned per search call
+	"fts_results": 5,           // max FTS results returned per search call
 	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 	"max_age_days": 3000,       // 0 = forever, max age of records to consider
-	"overlap_threshold": 0.5,   // Jaccard sim threshold to filter overlapping hits
-	"dedup_threshold": 0.6,     // Jaccard sim threshold to deduplicate within recall
-	"overlap_window": 8,        // number of recent records checked for overlap
-	"max_snippet_chars": 250,   // max chars per memory snippet in recall output
-	"context_window": 2,        // ±N surrounding records per FTS hit (0 = off)
-	"entity_weight": 3.0,       // BM25F weight for entities column (≥ 1.0)
-	"recency_halflife": 30,     // exponential decay half-life in days
-	"log_level": "info",        // "silent" | "error" | "info" | "debug"
+	"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
+	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
