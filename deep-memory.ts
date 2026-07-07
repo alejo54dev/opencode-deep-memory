@@ -44,11 +44,11 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 const CONFIG =
 {
-	fts_results:        5,      // max FTS results returned per search call
-	max_tokens_memory:  2000,   // max tokens consumed by memory recall block
-	max_snippet_chars:  3000,   // max chars per memory snippet in recall output
-	max_age_days:       3000,   // 0 = forever, max age of records to consider
-	log_level:          "info" as "silent" | "error" | "info" | "debug",
+	fts_results: 5,            // max FTS results returned per search call
+	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
+	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
+	max_age_days: 3000,        // 0 = forever, max age of records to consider
+	log_level: "info" as "silent" | "error" | "info" | "debug",
 };
 
 const LOG_LEVEL =
@@ -322,12 +322,12 @@ class Storage
 		) ;
 
 		this.stmtSearch = db.prepare(
-			`SELECT id, role, content, created_at,
-			        rank * CASE WHEN role = 'user' THEN 3.0 ELSE 1.0 END AS rank
-			 FROM records_fts JOIN records ON records_fts.rowid = id
+			`SELECT t.id, t.role, t.content, t.created_at,
+			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END AS rank
+			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.id
 			 WHERE records_fts MATCH ?
-			   AND ( ? = 0 OR julianday( 'now' ) - julianday( created_at ) <= ? )
-			 ORDER BY rank ASC, created_at DESC
+			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
+			 ORDER BY rank ASC, t.created_at DESC
 			 LIMIT ?`
 		);
 	}

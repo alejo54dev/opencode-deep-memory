@@ -16,7 +16,7 @@
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — BM25F × role weight (user×3) → age gate → dedup → token budget.
+- **Smart pipeline** — FTS5 native rank × role weight (user×3) → age gate → dedup → token budget.
 
 ## 🧠 Philosophy
 
