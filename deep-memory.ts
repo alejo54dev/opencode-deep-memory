@@ -11,15 +11,15 @@
 *
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
-*		"fts_results": 5,
-*		"max_tokens_memory": 2000,
-*		"max_snippet_chars": 3000,
-*		"max_age_days": 3000,
-*		"log_level": "info"
+*		"fts_results": 5,           // max FTS results returned per search call
+*		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
+*		"max_age_days": 3000,       // 0 = forever, max age of records to consider
+*		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
+*		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.41
+*	@version 1.0.41
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
