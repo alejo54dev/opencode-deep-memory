@@ -95,7 +95,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 | `overlap_threshold` | `0.5` | Jaccard similarity threshold for overlap filter |
 | `dedup_threshold` | `0.6` | Jaccard similarity threshold for dedup within recall |
-| `overlap_window` | `8` | Recent turns to compare against for overlap filter |
+| `overlap_window` | `8` | Recent records to compare against for overlap filter |
 | `max_snippet_chars` | `250` | Max chars per snippet before truncation |
 
 ## 🪵 Logs

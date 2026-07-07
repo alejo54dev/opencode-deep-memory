@@ -2,7 +2,7 @@
 *	deep-memory.ts
 *
 *	OpenCode plugin — persistent long-term memory via SQLite FTS5.
-*	Stores conversation turns, recalls relevant context on each turn.
+ *	Stores conversation records, recalls relevant context on each record.
 *
 *	Install: cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 *	Storage: ~/.config/opencode/storage/deep-memory.db
@@ -88,7 +88,7 @@ const STRIP_PATTERNS =
 const TOOL_DESC =
 [
 	"Search long-term memory using full-text search.",
-	"Use this when you need to recall past conversation turns,",
+	"Use this when you need to recall past conversation records,",
 	"decisions, or facts stored across all sessions.",
 ].join( " " ) ;
 
@@ -220,7 +220,7 @@ function sanitizeFtsQuery( input: string ): string
 	for ( const t of raw )
 		if ( t.length > 2 ) terms.push( t ) ;
 
-	if ( terms.length === 0 ) return "" ;
+	if ( !terms.length ) return "" ;
 
 	return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 }
@@ -254,7 +254,7 @@ function compressMemories(
 	maxSnippetChars: number
 ): string
 {
-	if ( hits.length === 0 ) return "" ;
+	if ( !hits.length ) return "" ;
 
 	const pick: MemoryHit[] = [] ;
 	for ( const h of hits )
@@ -364,7 +364,7 @@ class Storage
 		);
 	}
 
-	// Open or create the SQLite DB with WAL pragmas and v4 schema (turns + FTS5 + triggers)
+	// Open or create the SQLite DB with WAL pragmas and v4 schema (records + FTS5 + triggers)
 	static open(): Storage
 	{
 		if ( !existsSync( STORAGE_DIR ) )
@@ -439,7 +439,7 @@ class Storage
 		messages: Array<{ role: "user" | "assistant"; text: string }>
 	): number
 	{
-		if ( messages.length === 0 ) return 0 ;
+		if ( !messages.length ) return 0 ;
 
 		let count = 0 ;
 		const tx = this.db.transaction( ( msgs: typeof messages ) =>
@@ -452,7 +452,7 @@ class Storage
 				const result = this.stmtInsert.run(
 					m.role, text, hashContent( m.role, text )
 				);
-				if ( result.changes > 0 ) count++ ;
+				if ( result.changes ) count++ ;
 			}
 		} );
 
@@ -573,7 +573,7 @@ class DeepMemory
 		{
 			if ( !output.messages?.length ) return ;
 
-			const pairs: Array<{ role: "user" | "assistant"; text: string }> = [] ;
+			const records: Array<{ role: "user" | "assistant"; text: string }> = [] ;
 
 			for ( const msg of output.messages )
 			{
@@ -582,14 +582,11 @@ class DeepMemory
 				const text = extractText( msg as MessageLike ) ;
 				if ( !text ) continue ;
 
-				pairs.push( { role: msg.info.role, text } ) ;
+				records.push( { role: msg.info.role, text } ) ;
 			}
 
-			if ( pairs.length > 0 )
-			{
-				const stored = this.storage.storeRecords( pairs ) ;
-				log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
-			}
+			const stored = this.storage.storeRecords( records ) ;
+			if ( stored ) log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
 		}
 		catch ( err )
 		{
