@@ -11,18 +11,21 @@
 *
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
-*		"fts_results": 20,
-*		"max_tokens_memory": 2000,
-*		"max_age_days": 3000,       // 0 = forever
-*		"overlap_threshold": 0.5,
-*		"dedup_threshold": 0.6,
-*		"overlap_window": 8,
-*		"max_snippet_chars": 250,
+*		"fts_results": 20,          // max FTS results returned per search call
+*		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
+*		"max_age_days": 3000,       // 0 = forever, max age of records to consider
+*		"overlap_threshold": 0.5,   // Jaccard sim threshold to filter overlapping hits
+*		"dedup_threshold": 0.6,     // Jaccard sim threshold to deduplicate within recall
+*		"overlap_window": 8,        // number of recent records checked for overlap
+*		"max_snippet_chars": 250,   // max chars per memory snippet in recall output
+*		"context_window": 2,        // ±N surrounding records per FTS hit (0 = off)
+*		"entity_weight": 3.0,       // BM25F weight for entities column (≥ 1.0)
+*		"recency_halflife": 30,     // exponential decay half-life in days
 *		"log_level": "info",        // "silent" | "error" | "info" | "debug"
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.35
+*	@version 2.0.0
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -54,6 +57,9 @@ const CONFIG =
 	dedup_threshold:    0.6,
 	overlap_window:     8,
 	max_snippet_chars:  250,
+	context_window:     2,
+	entity_weight:      3.0,
+	recency_halflife:   30,
 	log_level:          "info" as "silent" | "error" | "info" | "debug",
 };
 
@@ -67,18 +73,18 @@ const LOG_LEVEL =
 
 const STRIP_PATTERNS =
 [
-	/<system[^>]*>[\s\S]*?<\/system[^>]*>/gi,
-	/<env[^>]*>[\s\S]*?<\/env[^>]*>/gi,
-	/<think[^>]*>[\s\S]*?<\/think[^>]*>/gi,
-	/<tool_[^>]*>[\s\S]*?<\/tool_[^>]*>/gi,
-	/<mcp_[^>]*>[\s\S]*?<\/mcp_[^>]*>/gi,
-	/<dcp-[^>]*>[\s\S]*?<\/dcp-[^>]*>/gi,
-	/<conver[^>]*>[\s\S]*?<\/conver[^>]*>/gi,
-	/<temp[^>]*>[\s\S]*?<\/temp[^>]*>/gi,
-	/<available_[^>]*>[\s\S]*?<\/available_[^>]*>/gi,
-	/<prev[^>]*>[\s\S]*?<\/prev[^>]*>/gi,
-	/<handoff[^>]*>[\s\S]*?<\/handoff[^>]*>/gi,
-	/<deep-[^>]*>[\s\S]*?<\/deep-[^>]*>/gi,
+	/<system[^>]*>[\s\S]*?(?:<\/system[^>]*>|$)/gi,
+	/<env[^>]*>[\s\S]*?(?:<\/env[^>]*>|$)/gi,
+	/<think[^>]*>[\s\S]*?(?:<\/think[^>]*>|$)/gi,
+	/<tool_[^>]*>[\s\S]*?(?:<\/tool_[^>]*>|$)/gi,
+	/<mcp_[^>]*>[\s\S]*?(?:<\/mcp_[^>]*>|$)/gi,
+	/<dcp-[^>]*>[\s\S]*?(?:<\/dcp-[^>]*>|$)/gi,
+	/<conver[^>]*>[\s\S]*?(?:<\/conver[^>]*>|$)/gi,
+	/<temp[^>]*>[\s\S]*?(?:<\/temp[^>]*>|$)/gi,
+	/<available_[^>]*>[\s\S]*?(?:<\/available_[^>]*>|$)/gi,
+	/<prev[^>]*>[\s\S]*?(?:<\/prev[^>]*>|$)/gi,
+	/<handoff[^>]*>[\s\S]*?(?:<\/handoff[^>]*>|$)/gi,
+	/<deep-[^>]*>[\s\S]*?(?:<\/deep-[^>]*>|$)/gi,
 	/\[Tool output truncated/gi,
 	/\[Old tool result/gi,
 	/▣\s*(?:DCP|Compression)[\s\S]*/gi,
@@ -104,6 +110,16 @@ const MAX_RESULTS_DESC =
 	"(default: fts_results config)",
 ].join( " " ) ;
 
+const SYSTEM_PROMPT =
+[
+	"<deep-memory>",
+	"You have access to memory_search().",
+	"Call it at session start to recall past context.",
+	"Call it when the user references previous work or asks about history.",
+	"Answer from memory when results match.",
+	"</deep-memory>",
+].join( "\n" ) ;
+
 // ─── Interfaces ────────────────────────────────────────────────────────────
 
 interface RecordRow
@@ -111,6 +127,7 @@ interface RecordRow
 	id: number ;
 	role: "user" | "assistant" ;
 	content: string ;
+	entities: string ;
 	created_at: string ;
 }
 
@@ -119,6 +136,7 @@ interface MemoryHit
 	id: number ;
 	role: "user" | "assistant" ;
 	content: string ;
+	entities: string ;
 	created_at: string ;
 	rank: number ;
 }
@@ -154,8 +172,11 @@ function loadConfig()
 		dedup_threshold:    Math.max( 0,  file.dedup_threshold    ?? CONFIG.dedup_threshold   ),
 		overlap_window:     Math.max( 1,  file.overlap_window     ?? CONFIG.overlap_window    ),
 		max_snippet_chars:  Math.max( 50, file.max_snippet_chars  ?? CONFIG.max_snippet_chars ),
+		context_window:     Math.max( 0,  file.context_window     ?? CONFIG.context_window    ),
+		entity_weight:      Math.max( 1,  file.entity_weight      ?? CONFIG.entity_weight     ),
+		recency_halflife:   Math.max( 1,  file.recency_halflife   ?? CONFIG.recency_halflife  ),
 		log_level:          file.log_level                        ?? CONFIG.log_level          ,
-	} as typeof CONFIG;
+	} as typeof CONFIG ;
 
 	CONFIG.log_level = opts.log_level ;
 
@@ -183,19 +204,59 @@ function log( level : number, message : string ) : void
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 // Only valid role
-function isValidRole( role: string ): boolean
+function isValidRole( role: string ) : boolean
 {
 	return [ "user", "assistant" ].includes( role ) ;
 }
 
-// SHA-1 hex of role + content — dedup key for storeTurns
-function hashContent( role: string, content: string ): string
+// SHA-1 hex of role + normalized content (lowercase hash for case-insensitive dedup)
+function hashContent( role: string, content: string ) : string
 {
-	return createHash( "sha1" ).update( role + ":" + content ).digest( "hex" ) ;
+	return createHash( "sha1" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
 }
 
-// Strip DCP/system/thinking/tool tags and normalize to lowercase for FTS indexing
-function normalizeContent( raw: string | undefined ): string
+// Extract structured tags from content: file paths, backtick refs, URLs
+function extractEntities( text: string ) : string
+{
+	const tags: string[] = [] ;
+	const seen = new Set<string>() ;
+
+	// file paths with extension
+	for ( const m of text.matchAll( /[\w./-]+\.[a-z0-9]{1,4}(?:\b|(?=\s|$))/gi ) )
+	{
+		const key = `path:${ m[ 0 ].toLowerCase() }` ;
+		if ( seen.has( key ) ) continue ;
+		seen.add( key ) ;
+		tags.push( key ) ;
+	}
+
+	// backtick code refs
+	for ( const m of text.matchAll( /`([^`]+)`/g ) )
+	{
+		const symbols = m[ 1 ].match( /[\w.>]+/g ) ?? [] ;
+		for ( const s of symbols )
+		{
+			const key = `ref:${ s }` ;
+			if ( seen.has( key ) ) continue ;
+			seen.add( key ) ;
+			tags.push( key ) ;
+		}
+	}
+
+	// URLs
+	for ( const m of text.matchAll( /https?:\/\/\S+/gi ) )
+	{
+		const key = `url:${ m[ 0 ] }` ;
+		if ( seen.has( key ) ) continue ;
+		seen.add( key ) ;
+		tags.push( key ) ;
+	}
+
+	return tags.join( " " ) ;
+}
+
+// Strip DCP/system/thinking/tool tags (preserves original case)
+function normalizeContent( raw: string | undefined ) : string
 {
 	if ( !raw ) return "" ;
 
@@ -204,11 +265,11 @@ function normalizeContent( raw: string | undefined ): string
 	for ( const pattern of STRIP_PATTERNS )
 		text = text.replace( pattern, "" ) ;
 
-	return text.toLowerCase().trim() ;
+	return text.trim() ;
 }
 
 // Convert free-form text into a safe FTS5 OR-query (strips punctuation, keeps >2-char terms)
-function sanitizeFtsQuery( input: string ): string
+function sanitizeFtsQuery( input: string ) : string
 {
 	if ( !input || typeof input !== "string" ) return "" ;
 
@@ -227,7 +288,7 @@ function sanitizeFtsQuery( input: string ): string
 
 // Jaccard similarity over word tokens — used for dedup and overlap filtering
 // Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
-function contentOverlap( a: string, b: string ): number
+function contentOverlap( a: string, b: string ) : number
 {
 	const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
 	const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
@@ -247,12 +308,7 @@ function contentOverlap( a: string, b: string ): number
 
 // Compress FTS hits into a token-budgeted context block with single-pass dedup
 // Skips hits that overlap heavily with already-picked ones; sorts by rank descending
-function compressMemories(
-	hits: MemoryHit[],
-	maxTokens: number,
-	dedupThreshold: number,
-	maxSnippetChars: number
-): string
+function compressMemories( hits: MemoryHit[], maxTokens: number, dedupThreshold: number, maxSnippetChars: number ) : string
 {
 	if ( !hits.length ) return "" ;
 
@@ -301,24 +357,22 @@ function compressMemories(
 	return parts.join( "\n" ) ;
 }
 
-// Extract plain text from a MessageLike, filtering out <system-reminder> noise
-function extractText( msg: MessageLike ): string
+// Extract plain text from a MessageLike
+function extractText( msg: MessageLike ) : string
 {
-	const parts: string[] = [];
+	const parts: string[] = [] ;
 
 	for ( const p of msg.parts )
 	{
-		if ( p.type === "text" && p.text && !p.text.startsWith( "<system-reminder>" ) )
-		{
-			parts.push( p.text );
-		}
+		if ( p.type === "text" && p.text )
+			parts.push( p.text ) ;
 	}
 
-	return parts.join( "\n" ).trim();
+	return parts.join( "\n" ).trim() ;
 }
 
 // Current local datetime as ISO-like string: "2026-07-06T20:30:26"
-function timestamp(): string
+function timestamp() : string
 {
 	const utc    = new Date() ;
 	const offset = utc.getTimezoneOffset() ;
@@ -330,42 +384,47 @@ function timestamp(): string
 // ─── Storage ───────────────────────────────────────────────────────────────
 
 // SQLite-backed turn store with FTS5 index for full-text search.
-// Schema is fixed at v4; migrations are handled externally, not at runtime.
 class Storage
 {
 	private db: Database ;
+
 	private stmtInsert: ReturnType<Database["prepare"]> ;
 	private stmtRecent: ReturnType<Database["prepare"]> ;
 	private stmtSearch: ReturnType<Database["prepare"]> ;
-	private stmtNextTurn: ReturnType<Database["prepare"]> ;
+	private stmtContextWindow: ReturnType<Database["prepare"]> ;
 
-	// Prepare prepared statements: insert, recent, search (ranked), next-turn lookup
 	private constructor( db: Database )
 	{
-		this.db = db;
+		this.db = db ;
+
 		this.stmtInsert = db.prepare(
-			"INSERT OR IGNORE INTO records ( role, content, content_hash ) VALUES ( ?, ?, ? )"
-		);
+			"INSERT OR IGNORE INTO records ( role, content, content_hash, entities ) VALUES ( ?, ?, ?, ? )"
+		) ;
+
 		this.stmtRecent = db.prepare(
-			"SELECT id, role, content, created_at FROM records ORDER BY created_at DESC LIMIT ?"
-		);
-		// Rank = FTS relevance × role weight (user=3x, assistant=1x) × recency decay (30-day half-life)
+			"SELECT id, role, content, entities, created_at FROM records ORDER BY created_at DESC LIMIT ?"
+		) ;
+
+		// Rank = BM25F (content×1.0, entities×entityWeight) × roleWeight (user×3) × recency (exp, halfLife)
 		this.stmtSearch = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at,
-			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END
-			             * ( 1.0 + MAX( 0.0, 1.0 - ( julianday( 'now' ) - julianday( t.created_at ) ) / 30.0 ) ) AS rank
+			`SELECT t.id, t.role, t.content, t.entities, t.created_at,
+			        bm25( records_fts, 1.0, 0.75, 1.0, ? )
+			             * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END
+			             * POW( 0.5, ( julianday( 'now' ) - julianday( t.created_at ) ) / ? )
+			             AS rank
 			 FROM records_fts JOIN records t ON records_fts.rowid = t.id
 			 WHERE records_fts MATCH ?
 			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
 			 ORDER BY rank LIMIT ?`
 		);
-		this.stmtNextTurn = db.prepare(
-			"SELECT id, role, content, created_at FROM records WHERE id = ? + 1 AND role = 'assistant' LIMIT 1"
+
+		this.stmtContextWindow = db.prepare(
+			"SELECT id, role, content, entities, created_at FROM records WHERE id >= ? AND id <= ? ORDER BY id"
 		);
 	}
 
-	// Open or create the SQLite DB with WAL pragmas and v4 schema (records + FTS5 + triggers)
-	static open(): Storage
+	// Open or create the SQLite DB with WAL pragmas and v2 schema (records + FTS5 + triggers)
+	static open() : Storage
 	{
 		if ( !existsSync( STORAGE_DIR ) )
 			mkdirSync( STORAGE_DIR, { recursive: true } ) ;
@@ -386,36 +445,38 @@ class Storage
 			PRAGMA foreign_keys         = ON ;
 			PRAGMA threads              = 4 ;
 			PRAGMA busy_timeout         = 5000 ;
-			PRAGMA user_version         = 1 ;
+			PRAGMA user_version         = 2 ;
 		` );
 
-		// Schema: records table with FTS5 mirror, kept in sync via triggers
+		// Schema v2: records table + standalone FTS5 (content, entities) with prefix indexes
 		db.exec( `
 			CREATE TABLE IF NOT EXISTS records (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				role TEXT NOT NULL CHECK( role IN ( 'user','assistant' ) ),
 				content TEXT NOT NULL,
 				content_hash TEXT NOT NULL UNIQUE,
+				entities TEXT NOT NULL DEFAULT '',
 				created_at TEXT NOT NULL DEFAULT ( datetime( 'now' ) )
 			);
 			CREATE INDEX IF NOT EXISTS idx_records_created
 				ON records( created_at )
 			;
 			CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
-				content, content='records', content_rowid='id',
-				tokenize="unicode61 remove_diacritics 1"
+				content, entities,
+				tokenize="unicode61 remove_diacritics 1",
+				prefix='2,3,4'
 			);
 			CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
-				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+				INSERT INTO records_fts( rowid, content, entities ) VALUES ( new.id, new.content, new.entities );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
+				INSERT INTO records_fts( records_fts, rowid, content, entities ) VALUES( 'delete', old.id, old.content, old.entities );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
-				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+				INSERT INTO records_fts( records_fts, rowid, content, entities ) VALUES( 'delete', old.id, old.content, old.entities );
+				INSERT INTO records_fts( rowid, content, entities ) VALUES ( new.id, new.content, new.entities );
 			END
 			;
 		` );
@@ -424,7 +485,7 @@ class Storage
 	}
 
 	// Close the DB with a WAL checkpoint; safe to call multiple times
-	close(): void
+	close() : void
 	{
 		try
 		{
@@ -435,9 +496,8 @@ class Storage
 	}
 
 	// Store messages in a transaction; dedup via content_hash UNIQUE constraint
-	storeRecords(
-		messages: Array<{ role: "user" | "assistant"; text: string }>
-	): number
+	// Extracts entities from each message before insert
+	storeRecords( messages: Array<{ role: "user" | "assistant"; text: string }> ) : number
 	{
 		if ( !messages.length ) return 0 ;
 
@@ -446,60 +506,64 @@ class Storage
 		{
 			for ( const m of msgs )
 			{
-				const text = normalizeContent( m.text );
+				const text = normalizeContent( m.text ) ;
 				if ( !text ) continue ;
 
+				const entities = extractEntities( text ) ;
 				const result = this.stmtInsert.run(
-					m.role, text, hashContent( m.role, text )
-				);
+					m.role, text, hashContent( m.role, text ), entities
+				) ;
 				if ( result.changes ) count++ ;
 			}
-		} );
+		} ) ;
 
 		tx( messages ) ;
 		return count ;
 	}
 
 	// Fetch the most recent records, newest first (used for overlap filtering)
-	getRecentRecords( limit: number ): RecordRow[]
+	getRecentRecords( limit: number ) : RecordRow[]
 	{
 		return this.stmtRecent.all( limit ) as RecordRow[] ;
 	}
 
-	// FTS5 search, ranked by relevance × role weight (user=3x) × recency decay (30-day half-life)
-	// Expands user hits with their following assistant response (pair recall)
-	searchMemories(
-		query: string,
-		limit: number,
-		maxAgeDays: number
-	): MemoryHit[]
+	// Fetch a ±N window of records around a given id (for context expansion)
+	getContextWindow( id: number, window: number ) : RecordRow[]
+	{
+		if ( !window ) return [] ;
+		return this.stmtContextWindow.all( id - window, id + window ) as RecordRow[] ;
+	}
+
+	// FTS5 search with BM25F (content ×1, entities × entityWeight), role weight, and exponential recency decay
+	// Expands each hit with a ±contextWindow of surrounding records
+	searchMemories( query: string, limit: number, maxAgeDays: number, entityWeight: number, halfLife: number, contextWindow: number ) : MemoryHit[]
 	{
 		const sanitized = sanitizeFtsQuery( query ) ;
 		if ( !sanitized ) return [] ;
 
 		try
 		{
-			const hits = this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
+			const hits = this.stmtSearch.all(
+				entityWeight, halfLife, sanitized, maxAgeDays, maxAgeDays, limit
+			) as MemoryHit[] ;
 
-			// Expand user hits with their following assistant response
+			// Expand each hit with a context window, then merge with decayed rank
 			const expanded: MemoryHit[] = [] ;
 			const seenIds = new Set<number>() ;
 
 			for ( const hit of hits )
 			{
-				if ( !seenIds.has( hit.id ) )
+				if ( seenIds.has( hit.id ) ) continue ;
+
+				const windowed = this.getContextWindow( hit.id, contextWindow ) ;
+				for ( const w of windowed )
 				{
-					expanded.push( hit ) ;
-					seenIds.add( hit.id ) ;
-				}
-				if ( hit.role === "user" )
-				{
-					const next = this.stmtNextTurn.get( hit.id ) as MemoryHit | undefined ;
-					if ( next && !seenIds.has( next.id ) )
-					{
-						expanded.push( { ...next, rank: hit.rank } ) ;
-						seenIds.add( next.id ) ;
-					}
+					if ( seenIds.has( w.id ) ) continue ;
+					seenIds.add( w.id ) ;
+					expanded.push( {
+						...w,
+						rank: w.id === hit.id ? hit.rank : hit.rank * 0.8,
+					} ) ;
 				}
 			}
 
@@ -519,29 +583,24 @@ class DeepMemory
 	private opts    : ReturnType<typeof loadConfig> ;
 	private storage : Storage ;
 
-	private _boundOnExit : () => void ;
-
-	constructor(
-		opts    : ReturnType<typeof loadConfig>,
-		storage : Storage,
-	)
+	constructor( opts : ReturnType<typeof loadConfig>, storage : Storage )
 	{
 		this.opts    = opts ;
 		this.storage = storage ;
-
-		this._boundOnExit = () => this.storage.close() ;
-		process.once( "exit", this._boundOnExit ) ;
+		process.once( "exit", () => this.storage.close() ) ;
 	}
 
 	// ── Public hooks ──────────────────────────────────────────────────────
 
-	recall(
-		args : { query: string; max_results?: number },
-	): string
+	recall( args : { query: string; max_results?: number } ) : string
 	{
 		const limit   = args.max_results ?? this.opts.fts_results ;
 		const recent  = this.storage.getRecentRecords( this.opts.overlap_window ) ;
-		const hits    = this.storage.searchMemories( args.query, limit, this.opts.max_age_days ) ;
+		const hits    = this.storage.searchMemories(
+			args.query, limit, this.opts.max_age_days,
+			this.opts.entity_weight, this.opts.recency_halflife,
+			this.opts.context_window
+		) ;
 
 		const filteredHits = hits.filter( hit =>
 		{
@@ -565,15 +624,13 @@ class DeepMemory
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
 	}
 
-	handleMessagesTransform(
-		output : { messages: Array<MessageLike> },
-	): void
+	handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
 	{
 		try
 		{
 			if ( !output.messages?.length ) return ;
 
-			const records: Array<{ role: "user" | "assistant"; text: string }> = [] ;
+			const records: Array<{ role: "user" | "assistant" ; text: string }> = [] ;
 
 			for ( const msg of output.messages )
 			{
@@ -594,16 +651,13 @@ class DeepMemory
 		}
 	}
 
-	handleSystemTransform(
-		output : { system: string[] },
-	): void
+	handleSystemTransform( output : { system: string[] } ) : void
 	{
-		output.system.push( "[deep-memory active: use tool memory_search() to search long-term memory]" ) ;
+		output.system.push( SYSTEM_PROMPT ) ;
 	}
 
-	dispose(): void
+	dispose() : void
 	{
-		process.removeListener( "exit", this._boundOnExit ) ;
 		this.storage.close() ;
 		log( LOG_LEVEL.INFO, `Disposed at ${ timestamp() }` ) ;
 	}

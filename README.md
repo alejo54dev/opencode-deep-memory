@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.35-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -10,7 +10,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 658 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 716 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
@@ -36,7 +36,7 @@ flowchart TD
 
     C --> D{"Model calls<br/>memory_search()?"}
     D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
-    E --> F["Rank × Weight × Decay<br/>→ Pair → Age → Overlap<br/>→ Dedup → Budget"]
+    E --> F["Rank × Weight × Decay<br/>→ Expanded → Overlap<br/>→ Dedup → Budget"]
     F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
     D -.->|"❌ No"| H["💬 Normal response"]
     G -.-> H
@@ -83,6 +83,9 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 	"dedup_threshold": 0.6,
 	"overlap_window": 8,
 	"max_snippet_chars": 250,
+	"context_window": 2,
+	"entity_weight": 3.0,
+	"recency_halflife": 30,
 	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
 ```
@@ -97,6 +100,9 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | `dedup_threshold` | `0.6` | Jaccard similarity threshold for dedup within recall |
 | `overlap_window` | `8` | Recent records to compare against for overlap filter |
 | `max_snippet_chars` | `250` | Max chars per snippet before truncation |
+| `context_window` | `2` | ±N surrounding records per FTS hit (`0` = off) |
+| `entity_weight` | `3.0` | BM25F weight for entities column (≥ 1.0) |
+| `recency_halflife` | `30` | Exponential decay half-life in days |
 
 ## 🪵 Logs
 
@@ -127,4 +133,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.35
+MIT — version 2.0.0
