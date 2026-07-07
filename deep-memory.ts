@@ -11,7 +11,7 @@
 *
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
- *		"fts_results": 20,          // max FTS results returned per search call
+*		"fts_results": 20,          // max FTS results returned per search call
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 *		"max_age_days": 3000,       // 0 = forever, max age of records to consider
 *		"overlap_threshold": 0.5,   // Jaccard sim threshold to filter overlapping hits
