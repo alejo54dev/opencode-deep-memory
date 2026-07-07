@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.29-blue)
+![Version](https://img.shields.io/badge/version-1.0.34-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -10,7 +10,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 595 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 658 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
@@ -22,7 +22,7 @@
 
 Memory is a growing stack, not a cache that gets cleaned. Everything saved, nothing pruned.
 
-The model decides when to ask. A single line in the system prompt reminds it about `deep_memory_recall()`. No forced injection, no tokens wasted on noise.
+The model decides when to ask. A single line in the system prompt reminds it about `memory_search()`. No forced injection, no tokens wasted on noise.
 
 When it asks, the pipeline searches the entire DB — across projects, across sessions, across months — and returns only what matters.
 
@@ -34,7 +34,7 @@ flowchart TD
     A --> B["💾 Auto-store in SQLite<br/>Dedup + strip tags"]
     B --> C["📎 System prompt gets<br/>tool reminder"]
 
-    C --> D{"Model calls<br/>deep_memory_recall()?"}
+    C --> D{"Model calls<br/>memory_search()?"}
     D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
     E --> F["Rank × Weight × Decay<br/>→ Pair → Age → Overlap<br/>→ Dedup → Budget"]
     F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
@@ -108,11 +108,11 @@ tail -f ~/.config/opencode/deep-memory.log
 
 ```log
 [2026-07-05T10:30:00.000Z] [INFO]: Config loaded
-[2026-07-05T10:30:01.000Z] [INFO]: Initialized | session: abc123def456
-[2026-07-05T10:35:12.000Z] [INFO]: Stored: 2 turns
-[2026-07-05T10:40:23.000Z] [INFO]: Stored: 5 turns
-[2026-07-05T10:45:00.000Z] [INFO]: Disposed | session: abc123def456
-[2026-07-05T10:50:00.000Z] [ERROR]: deep_memory_recall: connection timeout
+[2026-07-05T10:30:01.000Z] [INFO]: Initialized at 2026-07-05T10:30:01
+[2026-07-05T10:35:12.000Z] [INFO]: Stored: 1 record
+[2026-07-05T10:40:23.000Z] [INFO]: Stored: 1 record
+[2026-07-05T10:45:00.000Z] [INFO]: Disposed at 2026-07-05T10:45:00
+[2026-07-05T10:50:00.000Z] [ERROR]: memory_search: connection timeout
 [2026-07-05T10:55:00.000Z] [ERROR]: messages.transform: insert failed
 ```
 
@@ -127,4 +127,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.29
+MIT — version 1.0.34

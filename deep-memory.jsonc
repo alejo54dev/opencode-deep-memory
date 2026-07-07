@@ -6,5 +6,5 @@
 	"dedup_threshold": 0.6,
 	"overlap_window": 8,
 	"max_snippet_chars": 250,
-	"log_level": "info"         // "silent" | "error" | "info" | "debug"
+	"log_level": "info",        // "silent" | "error" | "info" | "debug"
 }
