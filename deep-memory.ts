@@ -13,8 +13,8 @@
 *	{
 *		"fts_results": 5,           // max FTS results returned per search call
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
-*		"max_age_days": 3000,       // 0 = forever, max age of records to consider
 *		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
+*		"max_age_days": 3000,       // 0 = forever, max age of records to consider
 *		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
@@ -272,13 +272,21 @@ function compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars
 
 	for ( const h of pick )
 	{
-		const snippet = h.content.slice( 0, maxSnippetChars ) ;
+		// smart truncation — cut at last sentence boundary before limit, force-cut if none
+		let snippet = h.content.trim() ;
+		if ( snippet.length > maxSnippetChars )
+		{
+			const truncated = snippet.slice( 0, maxSnippetChars ) ;
+			const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ ) ;
+			snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
+		}
 
 		const line = h.role === "assistant"
 			? `→ ${snippet}`
 			: `  ${snippet}` ;
 
-		const est = Math.ceil( line.length / 4 ) ;
+		// word-count heuristic (~1 word ≈ 1 token for GPT-class models)
+		const est = Math.max( 1, line.split( /\s+/ ).filter( Boolean ).length ) ;
 		if ( est > budget ) break ;
 
 		parts.push( line ) ;
