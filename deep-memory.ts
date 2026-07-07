@@ -392,16 +392,14 @@ class Storage
 				content TEXT NOT NULL,
 				content_hash TEXT NOT NULL UNIQUE,
 				created_at TEXT NOT NULL DEFAULT ( datetime( 'now' ) )
-			)
-			;
+			);
 			CREATE INDEX IF NOT EXISTS idx_records_created
 				ON records( created_at )
 			;
 			CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
 				content, content='records', content_rowid='id',
 				tokenize="unicode61 remove_diacritics 1"
-			)
-			;
+			);
 			CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
 				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
 			END
@@ -656,3 +654,5 @@ export default ( async ( _ctx: PluginInput ) =>
 		},
 	};
 } ) satisfies Plugin ;
+
+// ─── END ──────────────────────────────────────────────────────────────
