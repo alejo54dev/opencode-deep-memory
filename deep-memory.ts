@@ -12,10 +12,11 @@
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"enabled": true,            // master switch
-*		"fts_results": 5,           // max FTS results returned per search call
+*		"max_results": 5,           // max FTS results returned per search call
+*		"search_max_days": 600,     // 0 = all, max days of records to consider
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 *		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
-*		"max_age_days": 3000,       // 0 = forever, max age of records to consider
+*		"data_keep_days": 1000,     // 0 = forever, prune records older than this on startup
 *		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
@@ -46,10 +47,11 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 const CONFIG =
 {
 	enabled: true,             // master switch
-	fts_results: 5,            // max FTS results returned per search call
+	max_results: 5,            // max FTS results returned per search call
+	search_max_days: 600,      // 0 = all, max days of records to consider
 	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
 	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
-	max_age_days: 3000,        // 0 = forever, max age of records to consider
+	data_keep_days: 1000,      // 0 = forever, prune records older than this on startup
 	log_level: "info" as "silent" | "error" | "info" | "debug",
 };
 
@@ -97,7 +99,7 @@ const QUERY_DESC =
 const MAX_RESULTS_DESC =
 [
 	"Maximum number of results to return",
-	"(default: fts_results config)",
+	"(default: max_results config)",
 ].join( " " ) ;
 
 const SYSTEM_PROMPT =
@@ -153,12 +155,13 @@ function loadConfig()
 
 	const opts =
 	{
-		enabled:           file.enabled                        ?? CONFIG.enabled           ,
-		fts_results:       Math.max( 1,   file.fts_results       ?? CONFIG.fts_results      ),
-		max_tokens_memory: Math.max( 100, file.max_tokens_memory ?? CONFIG.max_tokens_memory ),
-		max_age_days:      Math.max( 0,   file.max_age_days      ?? CONFIG.max_age_days     ),
-		max_snippet_chars: Math.max( 50,  file.max_snippet_chars ?? CONFIG.max_snippet_chars ),
-		log_level:         file.log_level                        ?? CONFIG.log_level         ,
+		enabled:            file.enabled                            ?? CONFIG.enabled            ,
+		max_results:        Math.max( 1,   file.max_results         ?? CONFIG.max_results       ),
+		search_max_days:    Math.max( 0,   file.search_max_days     ?? CONFIG.search_max_days   ),
+		max_tokens_memory:  Math.max( 100, file.max_tokens_memory   ?? CONFIG.max_tokens_memory ),
+		max_snippet_chars:  Math.max( 50,  file.max_snippet_chars   ?? CONFIG.max_snippet_chars ),
+		data_keep_days:     Math.max( 0,   file.data_keep_days      ?? CONFIG.data_keep_days    ),
+		log_level:          file.log_level                          ?? CONFIG.log_level          ,
 	} as typeof CONFIG ;
 
 	CONFIG.log_level = opts.log_level ;
@@ -437,7 +440,20 @@ class Storage
 		return count ;
 	}
 
-	// FTS5 search, ranked by native rank × role weight (user ×3), filtered by max_age_days
+	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
+	prune( keepDays: number ) : number
+	{
+		if ( keepDays <= 0 ) return 0 ;
+
+		const result = this.db.run(
+			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created_at ) > ?",
+			[ keepDays ]
+		) ;
+
+		return result.changes ?? 0 ;
+	}
+
+	// FTS5 search, ranked by native rank × role weight (user ×3), filtered by search_max_days
 	searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
 		const sanitized = sanitizeFtsQuery( query ) ;
@@ -467,6 +483,9 @@ class DeepMemory
 	{
 		this.opts    = opts ;
 		this.storage = storage ;
+
+		const pruned = this.storage.prune( this.opts.data_keep_days ) ;
+		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
 	}
 
 	// ── Public hooks ──────────────────────────────────────────────────────
@@ -474,9 +493,9 @@ class DeepMemory
 	// Search memory, compress results into token-budgeted block
 	recall( args : { query: string; max_results?: number } ) : string
 	{
-		const limit = args.max_results ?? this.opts.fts_results ;
+		const limit = args.max_results ?? this.opts.max_results ;
 		const hits  = this.storage.searchMemories(
-			args.query, limit, this.opts.max_age_days
+			args.query, limit, this.opts.search_max_days
 		) ;
 
 		const contextStr = !hits.length

@@ -10,7 +10,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 573 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 610 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
@@ -20,7 +20,7 @@
 
 ## 🧠 Philosophy
 
-Memory is a growing stack, not a cache that gets cleaned. Everything saved, nothing pruned.
+Memory is a growing stack, not a cache that gets cleaned. Everything saved.
 
 The model decides when to ask. A single line in the system prompt reminds it about `memory_search()`. No forced injection, no tokens wasted on noise.
 
@@ -77,10 +77,11 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 ```jsonc
 {
 	"enabled": true,            // master switch
-	"fts_results": 5,           // max FTS results returned per search call
+	"max_results": 5,           // max FTS results returned per search call
+	"search_max_days": 600,     // 0 = all, max days of records to consider
 	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
-	"max_age_days": 3000,       // 0 = forever, max age of records to consider
 	"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
+	"data_keep_days": 1000,     // 0 = forever, prune records older than this on startup
 	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
 ```
@@ -88,10 +89,11 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `fts_results` | `5` | Max FTS results per search |
+| `max_results` | `5` | Max FTS results per search |
+| `search_max_days` | `600` | 0 = all, max days of records to consider |
 | `max_tokens_memory` | `2000` | Token budget for compressed context |
-| `max_age_days` | `3000` | Max age of recalled memories (`0` = forever) |
 | `max_snippet_chars` | `3000` | Max chars per snippet before truncation |
+| `data_keep_days` | `1000` | 0 = forever, prune records older than this on startup |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 
 ## 🪵 Logs
