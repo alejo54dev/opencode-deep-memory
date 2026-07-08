@@ -11,6 +11,7 @@
 *
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
+*		"enabled": true,            // master switch
 *		"fts_results": 5,           // max FTS results returned per search call
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 *		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
@@ -19,7 +20,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.41
+*	@version 1.0.42
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -44,6 +45,7 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 const CONFIG =
 {
+	enabled: true,             // master switch
 	fts_results: 5,            // max FTS results returned per search call
 	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
 	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
@@ -151,6 +153,7 @@ function loadConfig()
 
 	const opts =
 	{
+		enabled:           file.enabled                        ?? CONFIG.enabled           ,
 		fts_results:       Math.max( 1,   file.fts_results       ?? CONFIG.fts_results      ),
 		max_tokens_memory: Math.max( 100, file.max_tokens_memory ?? CONFIG.max_tokens_memory ),
 		max_age_days:      Math.max( 0,   file.max_age_days      ?? CONFIG.max_age_days     ),
@@ -532,7 +535,14 @@ class DeepMemory
 
 export default ( async ( _ctx: PluginInput ) =>
 {
-	const opts      = loadConfig() ;
+	const opts = loadConfig() ;
+
+	if ( !opts.enabled )
+	{
+		log( LOG_LEVEL.INFO, "Disabled" ) ;
+		return {} ;
+	}
+
 	const storage   = Storage.open() ;
 	const dm        = new DeepMemory( opts, storage ) ;
 

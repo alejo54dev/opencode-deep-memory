@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.41-blue)
+![Version](https://img.shields.io/badge/version-1.0.42-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -76,6 +76,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 
 ```jsonc
 {
+	"enabled": true,            // master switch
 	"fts_results": 5,           // max FTS results returned per search call
 	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 	"max_age_days": 3000,       // 0 = forever, max age of records to consider
@@ -86,6 +87,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 
 | Field | Default | Description |
 |---|---|---|
+| `enabled` | `true` | Master switch |
 | `fts_results` | `5` | Max FTS results per search |
 | `max_tokens_memory` | `2000` | Token budget for compressed context |
 | `max_age_days` | `3000` | Max age of recalled memories (`0` = forever) |
@@ -119,4 +121,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.41
+MIT — version 1.0.42
