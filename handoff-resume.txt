@@ -1,0 +1,16 @@
+<handoff-resume>
+
+Read newest 5 .md files from <PROJECT_ROOT>/.handoff/
+Extract and synthesize the feedback/conversation from these files.
+Output summary in this markdown template:
+- **Where we left off**: [last task + current state]
+- **Key context**: [files, decisions, constraints]
+- **Next step**: [pending work]
+- **Blocks**: [blockers or issues]
+- **Notes**: [other relevant info]
+
+If no files: No previous session found.'
+Use fs.readdirSync, not glob.
+Load my skills after.
+
+</handoff-resume>

@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.42-blue)
+![Version](https://img.shields.io/badge/version-1.0.52-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -16,7 +16,7 @@
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — FTS5 native rank × role weight (user×3) → age gate → dedup → token budget.
+- **Smart pipeline** — FTS5 → age gate → insertion order → dedup → token budget.
 
 ## 🧠 Philosophy
 
@@ -36,7 +36,7 @@ flowchart TD
 
     C --> D{"Model calls<br/>memory_search()?"}
     D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
-    E --> F["Rank × Role Weight<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
+    E --> F["Insertion Order<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
     F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
     D -.->|"❌ No"| H["💬 Normal response"]
     G -.-> H
@@ -77,7 +77,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 ```jsonc
 {
 	"enabled": true,            // master switch
-	"max_results": 5,           // max FTS results returned per search call
+	"max_results": 20,          // max FTS results returned per search call
 	"search_max_days": 600,     // 0 = all, max days of records to consider
 	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 	"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
@@ -89,7 +89,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `max_results` | `5` | Max FTS results per search |
+| `max_results` | `20` | Max FTS results per search |
 | `search_max_days` | `600` | 0 = all, max days of records to consider |
 | `max_tokens_memory` | `2000` | Token budget for compressed context |
 | `max_snippet_chars` | `3000` | Max chars per snippet before truncation |
@@ -123,4 +123,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.42
+MIT — version 1.0.52

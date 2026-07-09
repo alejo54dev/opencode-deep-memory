@@ -12,7 +12,7 @@
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"enabled": true,            // master switch
-*		"max_results": 5,           // max FTS results returned per search call
+*		"max_results": 50,          // max FTS results returned per search call
 *		"search_max_days": 600,     // 0 = all, max days of records to consider
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 *		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.42
+*	@version 1.0.52
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -47,7 +47,7 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 const CONFIG =
 {
 	enabled: true,             // master switch
-	max_results: 5,            // max FTS results returned per search call
+	max_results: 20,           // max FTS results returned per search call
 	search_max_days: 600,      // 0 = all, max days of records to consider
 	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
 	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
@@ -65,22 +65,22 @@ const LOG_LEVEL =
 
 const STRIP_PATTERNS =
 [
-	/<system[^>]*>[\s\S]*?(?:<\/system[^>]*>|$)/gi,
-	/<env[^>]*>[\s\S]*?(?:<\/env[^>]*>|$)/gi,
-	/<think[^>]*>[\s\S]*?(?:<\/think[^>]*>|$)/gi,
-	/<tool_[^>]*>[\s\S]*?(?:<\/tool_[^>]*>|$)/gi,
-	/<mcp_[^>]*>[\s\S]*?(?:<\/mcp_[^>]*>|$)/gi,
-	/]*>[\s\S]*?(?:<\/dcp-[^>]*>|$)/gi,
-	/<conver[^>]*>[\s\S]*?(?:<\/conver[^>]*>|$)/gi,
-	/<temp[^>]*>[\s\S]*?(?:<\/temp[^>]*>|$)/gi,
-	/<available_[^>]*>[\s\S]*?(?:<\/available_[^>]*>|$)/gi,
-	/<prev[^>]*>[\s\S]*?(?:<\/prev[^>]*>|$)/gi,
-	/<handoff[^>]*>[\s\S]*?(?:<\/handoff[^>]*>|$)/gi,
-	/<deep-[^>]*>[\s\S]*?(?:<\/deep-[^>]*>|$)/gi,
-	/\[Tool output truncated/gi,
-	/\[Old tool result/gi,
-	/▣\s*(?:DCP|Compression)[\s\S]*/gi,
-	/\[Compressed[\s\S]*/gi,
+	"<system[^>]*>[\\s\\S]*?</system[^>]*>",
+	"<env[^>]*>[\\s\\S]*?</env[^>]*>",
+	"<think[^>]*>[\\s\\S]*?</think[^>]*>",
+	"<tool_[^>]*>[\\s\\S]*?</tool_[^>]*>",
+	"<mcp_[^>]*>[\\s\\S]*?</mcp_[^>]*>",
+	"<dcp-[^>]*>[\\s\\S]*?</dcp-[^>]*>",
+	"<conver[^>]*>[\\s\\S]*?</conver[^>]*>",
+	"<temp[^>]*>[\\s\\S]*?</temp[^>]*>",
+	"<available_[^>]*>[\\s\\S]*?</available_[^>]*>",
+	"<prev[^>]*>[\\s\\S]*?</prev[^>]*>",
+	"<handoff[^>]*>[\\s\\S]*?</handoff[^>]*>",
+	"<deep-[^>]*>[\\s\\S]*?</deep-[^>]*>",
+	"\\[Tool output truncated[\\s\\S]*",
+	"\\[Old tool result[\\s\\S]*",
+	"▣\\s*(?:DCP|Compression)[\\s\\S]*",
+	"\\[Compressed[\\s\\S]*",
 ];
 
 const TOOL_DESC =
@@ -120,7 +120,6 @@ interface MemoryHit
 	role: "user" | "assistant" ;
 	content: string ;
 	created_at: string ;
-	rank: number ;
 }
 
 interface MessageLike
@@ -250,7 +249,7 @@ function contentOverlap( a: string, b: string ) : number
 }
 
 // Compress FTS hits into a token-budgeted context block with single-pass dedup
-// Skips hits that overlap heavily with already-picked ones; sorts by rank ascending
+// Skips hits that overlap heavily with already-picked ones
 function compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars: number ) : string
 {
 	if ( !hits.length ) return "" ;
@@ -270,8 +269,6 @@ function compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars
 		}
 		if ( !dup ) pick.push( h ) ;
 	}
-
-	pick.sort( ( a, b ) => a.rank - b.rank ) ;
 
 	const parts: string[] = [] ;
 	let budget = maxTokens ;
@@ -326,7 +323,7 @@ class Storage
 	private stmtInsert: ReturnType<Database["prepare"]> ;
 	private stmtSearch: ReturnType<Database["prepare"]> ;
 
-	// Prepare prepared statements: insert (dedup via UNIQUE) and search (ranked × role weight)
+	// Prepare prepared statements: insert (dedup via UNIQUE) and search (FTS5 with age gate)
 	private constructor( db: Database )
 	{
 		this.db = db ;
@@ -336,12 +333,11 @@ class Storage
 		) ;
 
 		this.stmtSearch = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at,
-			        rank * CASE WHEN t.role = 'user' THEN 3.0 ELSE 1.0 END AS rank
+			`SELECT t.id, t.role, t.content, t.created_at
 			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.id
 			 WHERE records_fts MATCH ?
 			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
-			 ORDER BY rank ASC, t.created_at DESC
+			 ORDER BY t.id
 			 LIMIT ?`
 		);
 	}
@@ -453,7 +449,7 @@ class Storage
 		return result.changes ?? 0 ;
 	}
 
-	// FTS5 search, ranked by native rank × role weight (user ×3), filtered by search_max_days
+	// FTS5 search with age gate, ordered by insertion order (id)
 	searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
 		const sanitized = sanitizeFtsQuery( query ) ;
