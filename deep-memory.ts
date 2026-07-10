@@ -205,7 +205,7 @@ function normalizeContent( raw: string | undefined ) : string
 	let text = raw ;
 
 	for ( const pattern of STRIP_PATTERNS )
-		text = text.replace( pattern, "" ) ;
+		text = text.replace( new RegExp( pattern, "g" ), "" ) ;
 
 	return text.replace( /\s+/g, " " ).trim() ;
 }
