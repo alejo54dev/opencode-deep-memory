@@ -207,7 +207,7 @@ function normalizeContent( raw: string | undefined ) : string
 	for ( const pattern of STRIP_PATTERNS )
 		text = text.replace( pattern, "" ) ;
 
-	return text.trim() ;
+	return text.replace( /\s+/g, " " ).trim() ;
 }
 
 // Convert free-form text into a safe FTS5 OR-query (strips punctuation, keeps >2-char terms)
