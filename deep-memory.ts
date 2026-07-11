@@ -67,12 +67,12 @@ const LOG_LEVEL =
 const FILTER_PATTERNS =
 [
 	// Reference: https://github.com/Opencode-DCP/opencode-dynamic-context-pruning/blob/master/lib/messages/utils.ts
-	"<dcp[^>]*>[\\s\\S]*?<\\/dcp[^>]*>",
-	"<\\/?dcp[^>]*>",
-// 	"\\[Tool output truncated[\\s\\S]*",
-// 	"\\[Old tool result[\\s\\S]*",
-// 	"▣\\s*(?:DCP|Compression)[\\s\\S]*",
-// 	"\\[Compressed[\\s\\S]*",
+	/<dcp[^>]*>[\s\S]*?<\/dcp[^>]*>/gi,
+	/<\/?dcp[^>]*>/gi,
+	/\[Tool output truncated/gi,
+	/\[Old tool result/gi,
+	/▣\s*(?:DCP|Compression)[\s\S]*/gi,
+	/\[Compressed[\s\S]*/gi,
 ];
 
 const TOOL_DESC =
@@ -211,14 +211,12 @@ class Storage
 	}
 
 	// Strip DCP/system/thinking/tool tags (preserves original case)
-	protected normalizeContent( raw: string | undefined ) : string
+	protected normalizeContent( text: string | undefined ) : string
 	{
-		if ( !raw ) return "" ;
-
-		let text = raw ;
+		if ( !text ) return "" ;
 
 		for ( const pattern of FILTER_PATTERNS )
-			text = text.replace( new RegExp( pattern, "gi" ), "" ) ;
+			text = text.replace( pattern, "" ) ;
 
 		return text.replace( /\s+/g, " " ).trim() ;
 	}
