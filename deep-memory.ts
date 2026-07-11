@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.55
+ *	@version 1.0.56
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -498,7 +498,7 @@ class DeepMemory
 	// ── Public hooks ──────────────────────────────────────────────────────
 
 	// Search memory, compress results into token-budgeted block
-	recall( args : { query: string; max_results?: number } ) : string
+	public recall( args : { query: string; max_results?: number } ) : string
 	{
 		const limit = args.max_results ?? this.opts.max_results ;
 		const hits  = this.storage.searchMemories(
@@ -516,7 +516,7 @@ class DeepMemory
 	}
 
 	// Store conversation messages after stripping noise (tags, metadata, etc)
-	handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
+	public handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
 	{
 		try
 		{
@@ -551,13 +551,13 @@ class DeepMemory
 	}
 
 	// Append memory-search tool reminder to system prompt
-	handleSystemTransform( output : { system: string[] } ) : void
+	public handleSystemTransform( output : { system: string[] } ) : void
 	{
 		output.system.push( SYSTEM_PROMPT ) ;
 	}
 
 	// Close DB and log shutdown
-	dispose() : void
+	public dispose() : void
 	{
 		this.storage.close() ;
 		log( LOG_LEVEL.INFO, "Disposed" ) ;
