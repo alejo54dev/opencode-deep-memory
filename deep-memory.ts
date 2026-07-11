@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.0.56
+*	@version 1.0.56
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -120,7 +120,7 @@ interface MessageLike
 	parts: Array<{ type: string; text?: string; synthetic?: boolean; ignored?: boolean }> ;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 // Current local datetime as ISO-like string: "2026-07-06T20:30:26"
 function timestamp() : string

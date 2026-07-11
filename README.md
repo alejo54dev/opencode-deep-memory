@@ -112,6 +112,15 @@ tail -f ~/.config/opencode/deep-memory.log
 [2026-07-05T10:45:00] [INFO]: Disposed
 ```
 
+## 🔌 Plugin hooks
+
+| Hook | Purpose |
+|---|---|
+| `tool: memory_search` | exposes the `memory_search()` tool the model calls to recall cross-project memory |
+| `experimental.chat.messages.transform` | stores every incoming message (dedup + strip tags) into SQLite |
+| `experimental.chat.system.transform` | injects the `memory_search()` reminder into the system prompt |
+| `dispose` | flushes and closes the SQLite store |
+
 ## 💬 Notes
 
 - System-injected (`synthetic`/`ignored`) message parts are skipped during storage.
