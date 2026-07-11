@@ -68,8 +68,6 @@ flowchart TD
 cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 ```
 
-The plugin loads automatically when OpenCode starts. No manual registration required.
-
 No npm, no build step, no dependencies. OpenCode runs TypeScript natively.
 
 ## ⚙️ Configuration
