@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.0.52-blue)
+![Version](https://img.shields.io/badge/version-1.0.55-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -10,7 +10,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 606 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 628 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
 
@@ -65,7 +65,7 @@ flowchart TD
 ## 🚀 Installation
 
 ```bash
-cp deep-memory.ts ~/.config/opencode/plugins/
+cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 ```
 
 The plugin loads automatically when OpenCode starts. No manual registration required.
@@ -114,6 +114,8 @@ tail -f ~/.config/opencode/deep-memory.log
 
 ## 💬 Notes
 
+- System-injected (`synthetic`/`ignored`) message parts are skipped during storage.
+
 Less is more. :)
 
 ## 👤 Authors
@@ -123,4 +125,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.0.52
+MIT — version 1.0.55

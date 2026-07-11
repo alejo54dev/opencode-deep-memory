@@ -12,7 +12,7 @@
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"enabled": true,            // master switch
-*		"max_results": 50,          // max FTS results returned per search call
+*		"max_results": 20,          // max FTS results returned per search call
 *		"search_max_days": 600,     // 0 = all, max days of records to consider
 *		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
 *		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.0.52
+*	@version 1.0.55
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -63,24 +63,16 @@ const LOG_LEVEL =
 	DEBUG  : 3,
 } as const ;
 
-const STRIP_PATTERNS =
+// Optional/additional chat content filter. (empty by default)
+const FILTER_PATTERNS =
 [
-	"<system[^>]*>[\\s\\S]*?</system[^>]*>",
-	"<env[^>]*>[\\s\\S]*?</env[^>]*>",
-	"<think[^>]*>[\\s\\S]*?</think[^>]*>",
-	"<tool_[^>]*>[\\s\\S]*?</tool_[^>]*>",
-	"<mcp_[^>]*>[\\s\\S]*?</mcp_[^>]*>",
-	"<dcp-[^>]*>[\\s\\S]*?</dcp-[^>]*>",
-	"<conver[^>]*>[\\s\\S]*?</conver[^>]*>",
-	"<temp[^>]*>[\\s\\S]*?</temp[^>]*>",
-	"<available_[^>]*>[\\s\\S]*?</available_[^>]*>",
-	"<prev[^>]*>[\\s\\S]*?</prev[^>]*>",
-	"<handoff[^>]*>[\\s\\S]*?</handoff[^>]*>",
-	"<deep-[^>]*>[\\s\\S]*?</deep-[^>]*>",
-	"\\[Tool output truncated[\\s\\S]*",
-	"\\[Old tool result[\\s\\S]*",
-	"▣\\s*(?:DCP|Compression)[\\s\\S]*",
-	"\\[Compressed[\\s\\S]*",
+	// Reference: https://github.com/Opencode-DCP/opencode-dynamic-context-pruning/blob/master/lib/messages/utils.ts
+	"<dcp[^>]*>[\\s\\S]*?<\\/dcp[^>]*>",
+	"<\\/?dcp[^>]*>",
+// 	"\\[Tool output truncated[\\s\\S]*",
+// 	"\\[Old tool result[\\s\\S]*",
+// 	"▣\\s*(?:DCP|Compression)[\\s\\S]*",
+// 	"\\[Compressed[\\s\\S]*",
 ];
 
 const TOOL_DESC =
@@ -125,11 +117,12 @@ interface MemoryHit
 interface MessageLike
 {
 	info: { role: "user" | "assistant"; id?: string } ;
-	parts: Array<{ type: string; text?: string }> ;
+	parts: Array<{ type: string; text?: string; synthetic?: boolean; ignored?: boolean }> ;
 }
 
-// ─── Global Helpers ──────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────
 
+// Current local datetime as ISO-like string: "2026-07-06T20:30:26"
 function timestamp() : string
 {
 	const utc    = new Date() ;
@@ -139,35 +132,34 @@ function timestamp() : string
 	return local.toISOString().slice( 0, 19 ) ;
 }
 
+// Load config from ~/.config/opencode/deep-memory.jsonc, fall back to defaults
 function loadConfig()
 {
 	let file : Record<string, unknown> = {} ;
 	try
 	{
 		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) ;
-		log( LOG_LEVEL.INFO, "Config loaded" ) ;
 	}
 	catch
 	{
 		log( LOG_LEVEL.ERROR, `Config not found or parse error at ${ CONFIG_FILE }` ) ;
 	}
 
-	const opts =
-	{
-		enabled:            file.enabled                            ?? CONFIG.enabled            ,
-		max_results:        Math.max( 1,   file.max_results         ?? CONFIG.max_results       ),
-		search_max_days:    Math.max( 0,   file.search_max_days     ?? CONFIG.search_max_days   ),
-		max_tokens_memory:  Math.max( 100, file.max_tokens_memory   ?? CONFIG.max_tokens_memory ),
-		max_snippet_chars:  Math.max( 50,  file.max_snippet_chars   ?? CONFIG.max_snippet_chars ),
-		data_keep_days:     Math.max( 0,   file.data_keep_days      ?? CONFIG.data_keep_days    ),
-		log_level:          file.log_level                          ?? CONFIG.log_level          ,
-	} as typeof CONFIG ;
+	// Validate between file values and defaults values.
+	CONFIG.enabled            = file.enabled                           ?? CONFIG.enabled ;
+	CONFIG.max_results        = Math.max( 1,   file.max_results        ?? CONFIG.max_results ) ;
+	CONFIG.search_max_days    = Math.max( 0,   file.search_max_days    ?? CONFIG.search_max_days ) ;
+	CONFIG.max_tokens_memory  = Math.max( 100, file.max_tokens_memory  ?? CONFIG.max_tokens_memory ) ;
+	CONFIG.max_snippet_chars  = Math.max( 50,  file.max_snippet_chars  ?? CONFIG.max_snippet_chars ) ;
+	CONFIG.data_keep_days     = Math.max( 0,   file.data_keep_days     ?? CONFIG.data_keep_days ) ;
+	CONFIG.log_level          = file.log_level                         ?? CONFIG.log_level ;
 
-	CONFIG.log_level = opts.log_level ;
+	log( LOG_LEVEL.INFO, "Config loaded" ) ;
 
-	return opts ;
+	return CONFIG ;
 }
 
+// Append timestamped entry to ~/.config/opencode/deep-memory.log
 function log( level : number, message : string ) : void
 {
 	const min = LOG_LEVEL[ ( CONFIG.log_level ?? "info" ).toUpperCase() ] ?? LOG_LEVEL.ERROR ;
@@ -181,136 +173,6 @@ function log( level : number, message : string ) : void
 		appendFileSync( LOG_FILE, `[${ timestamp() }] [${ label }]: ${ message }\n` ) ;
 	}
 	catch {}
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-// Only valid role
-function isValidRole( role: string ) : boolean
-{
-	return [ "user", "assistant" ].includes( role ) ;
-}
-
-// MD5 hex of role + content — dedup key for storeRecords (lowercased hash for case-insensitive dedup)
-function hashContent( role: string, content: string ) : string
-{
-	return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
-}
-
-// Strip DCP/system/thinking/tool tags (preserves original case)
-function normalizeContent( raw: string | undefined ) : string
-{
-	if ( !raw ) return "" ;
-
-	let text = raw ;
-
-	for ( const pattern of STRIP_PATTERNS )
-		text = text.replace( new RegExp( pattern, "g" ), "" ) ;
-
-	return text.replace( /\s+/g, " " ).trim() ;
-}
-
-// Convert free-form text into a safe FTS5 OR-query (strips punctuation, keeps >2-char terms)
-function sanitizeFtsQuery( input: string ) : string
-{
-	if ( !input || typeof input !== "string" ) return "" ;
-
-	const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}\s-]/gu, "" ) ;
-	const raw     = cleaned.split( /[\s-]+/ ) ;
-
-	const terms : string[] = [] ;
-
-	for ( const t of raw )
-		if ( t.length > 2 ) terms.push( t ) ;
-
-	if ( !terms.length ) return "" ;
-
-	return terms.map( t => `"${t}"*` ).join( " OR " ) ;
-}
-
-// Jaccard similarity over word tokens — used for dedup in compressMemories
-// Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
-function contentOverlap( a: string, b: string ) : number
-{
-	const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
-	const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
-
-	if ( setA.size < 3 || setB.size < 3 ) return 0 ;
-
-	const [ smaller, larger ] = setA.size <= setB.size
-		? [ setA, setB ] : [ setB, setA ] ;
-
-	let inter = 0;
-	for ( const x of smaller )
-		if ( larger.has( x ) ) inter++ ;
-
-	const union = setA.size + setB.size - inter ;
-	return union === 0 ? 0 : inter / union ;
-}
-
-// Compress FTS hits into a token-budgeted context block with single-pass dedup
-// Skips hits that overlap heavily with already-picked ones
-function compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars: number ) : string
-{
-	if ( !hits.length ) return "" ;
-
-	const pick: MemoryHit[] = [] ;
-	for ( const h of hits )
-	{
-		let dup = false ;
-
-		for ( const p of pick )
-		{
-			if ( contentOverlap( p.content, h.content ) > 0.6 )
-			{
-				dup = true ;
-				break ;
-			}
-		}
-		if ( !dup ) pick.push( h ) ;
-	}
-
-	const parts: string[] = [] ;
-	let budget = maxTokens ;
-
-	for ( const h of pick )
-	{
-		// smart truncation — cut at last sentence boundary before limit, force-cut if none
-		let snippet = h.content.trim() ;
-		if ( snippet.length > maxSnippetChars )
-		{
-			const truncated = snippet.slice( 0, maxSnippetChars ) ;
-			const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ ) ;
-			snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
-		}
-
-		const line = h.role === "assistant"
-			? `→ ${snippet}`
-			: `  ${snippet}` ;
-
-		// word-count heuristic (~1 word ≈ 1 token for GPT-class models)
-		const est = Math.max( 1, line.split( /\s+/ ).filter( Boolean ).length ) ;
-		if ( est > budget ) break ;
-
-		parts.push( line ) ;
-		budget -= est ;
-	}
-
-	return parts.join( "\n" ) ;
-}
-
-// Extract plain text from a MessageLike
-function extractText( msg: MessageLike ) : string
-{
-	const parts: string[] = [] ;
-
-	for ( const p of msg.parts )
-	{
-		if ( p.type === "text" && p.text )
-			parts.push( p.text ) ;
-	}
-
-	return parts.join( "\n" ).trim() ;
 }
 
 // ─── Storage ───────────────────────────────────────────────────────────────
@@ -340,6 +202,43 @@ class Storage
 			 ORDER BY t.id
 			 LIMIT ?`
 		);
+	}
+
+	// MD5 hex of role + content — dedup key for storeRecords (lowercased hash for case-insensitive dedup)
+	protected hashContent( role: string, content: string ) : string
+	{
+		return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
+	}
+
+	// Strip DCP/system/thinking/tool tags (preserves original case)
+	protected normalizeContent( raw: string | undefined ) : string
+	{
+		if ( !raw ) return "" ;
+
+		let text = raw ;
+
+		for ( const pattern of FILTER_PATTERNS )
+			text = text.replace( new RegExp( pattern, "gi" ), "" ) ;
+
+		return text.replace( /\s+/g, " " ).trim() ;
+	}
+
+	// Convert free-form text into a safe FTS5 OR-query (splits on non-alphanumeric into word tokens, keeps >1-char terms)
+	protected sanitizeFtsQuery( input: string ) : string
+	{
+		if ( !input || typeof input !== "string" ) return "" ;
+
+		const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}]+/gu, " " ) ;
+		const raw     = cleaned.split( /\s+/ ) ;
+
+		const terms : string[] = [] ;
+
+		for ( const t of raw )
+			if ( t.length > 1 ) terms.push( t ) ;
+
+		if ( !terms.length ) return "" ;
+
+		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 	}
 
 	// Open or create the SQLite DB with WAL pragmas and v2 schema (records + FTS5 external content + triggers)
@@ -422,11 +321,11 @@ class Storage
 		{
 			for ( const m of msgs )
 			{
-				const text = normalizeContent( m.text ) ;
+				const text = this.normalizeContent( m.text ) ;
 				if ( !text ) continue ;
 
 				const result = this.stmtInsert.run(
-					m.role, text, hashContent( m.role, text )
+					m.role, text, this.hashContent( m.role, text )
 				) ;
 				if ( result.changes ) count++ ;
 			}
@@ -452,7 +351,7 @@ class Storage
 	// FTS5 search with age gate, ordered by insertion order (id)
 	searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
-		const sanitized = sanitizeFtsQuery( query ) ;
+		const sanitized = this.sanitizeFtsQuery( query ) ;
 		if ( !sanitized ) return [] ;
 
 		try
@@ -474,7 +373,9 @@ class DeepMemory
 {
 	private opts    : ReturnType<typeof loadConfig> ;
 	private storage : Storage ;
+	private seen    : Set<string> = new Set() ;
 
+	// Initialize: prune old records on startup, seed seen ids
 	constructor( opts : ReturnType<typeof loadConfig>, storage : Storage )
 	{
 		this.opts    = opts ;
@@ -482,6 +383,118 @@ class DeepMemory
 
 		const pruned = this.storage.prune( this.opts.data_keep_days ) ;
 		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
+	}
+
+	// Only valid role
+	protected isValidRole( role: string ) : boolean
+	{
+		return [ "user", "assistant" ].includes( role ) ;
+	}
+
+	// Jaccard similarity over word tokens — used for dedup in compressMemories
+	// Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
+	protected contentOverlap( a: string, b: string ) : number
+	{
+		const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
+		const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
+
+		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
+
+		const [ smaller, larger ] = setA.size <= setB.size
+			? [ setA, setB ] : [ setB, setA ] ;
+
+		let inter = 0;
+		for ( const x of smaller )
+			if ( larger.has( x ) ) inter++ ;
+
+		const union = setA.size + setB.size - inter ;
+		return union === 0 ? 0 : inter / union ;
+	}
+
+	// Compress FTS hits into a token-budgeted context block with single-pass dedup
+	// Skips hits that overlap heavily with already-picked ones
+	protected compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars: number ) : string
+	{
+		if ( !hits.length ) return "" ;
+
+		const pick: MemoryHit[] = [] ;
+		for ( const h of hits )
+		{
+			let dup = false ;
+
+			for ( const p of pick )
+			{
+				if ( this.contentOverlap( p.content, h.content ) > 0.6 )
+				{
+					dup = true ;
+					break ;
+				}
+			}
+			if ( !dup ) pick.push( h ) ;
+		}
+
+		const parts: string[] = [] ;
+		let budget = maxTokens ;
+
+		for ( const h of pick )
+		{
+			// smart truncation — cut at last sentence boundary before limit, force-cut if none
+			let snippet = h.content.trim() ;
+			if ( snippet.length > maxSnippetChars )
+			{
+				const truncated = snippet.slice( 0, maxSnippetChars ) ;
+				const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ ) ;
+				snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
+			}
+
+			const line = h.role === "assistant"
+				? `→ ${snippet}`
+				: `  ${snippet}` ;
+
+			// word-count heuristic (~1 word ≈ 1 token for GPT-class models)
+			const est = Math.max( 1, line.split( /\s+/ ).filter( Boolean ).length ) ;
+			if ( est > budget ) break ;
+
+			parts.push( line ) ;
+			budget -= est ;
+		}
+
+		return parts.join( "\n" ) ;
+	}
+
+	// True if part is non-text/synthetic/ignored (runtime-injected)
+	protected isRuntime( p: { type: string; synthetic?: boolean; ignored?: boolean } ): boolean
+	{
+		const hit =
+		[
+			( v ) => v.type != "text",
+			( v ) => v.synthetic == true,
+			( v ) => v.ignored == true
+		];
+
+		if ( hit.some( ( check ) => check( p ) ) )
+		{
+			log( LOG_LEVEL.DEBUG, `Runtime part: type=${p.type} synthetic=${p.synthetic} ignored=${p.ignored}` ) ;
+			return true ;
+		}
+
+		return false ;
+	}
+
+	// Extract plain text from a MessageLike.
+	// Skips runtime parts (non-text types, synthetic, ignored).
+	// Only natural user/assistant text passes through.
+	protected extractText( msg: MessageLike ) : string
+	{
+		const parts: string[] = [] ;
+
+		for ( const p of msg.parts )
+		{
+			if ( this.isRuntime( p ) ) continue ;
+			if ( p.text ) parts.push( p.text ) ;
+		}
+
+		return parts.join( "\n" ).trim() ;
 	}
 
 	// ── Public hooks ──────────────────────────────────────────────────────
@@ -496,7 +509,7 @@ class DeepMemory
 
 		const contextStr = !hits.length
 			? ""
-			: compressMemories( hits, this.opts.max_tokens_memory, this.opts.max_snippet_chars ) ;
+			: this.compressMemories( hits, this.opts.max_tokens_memory, this.opts.max_snippet_chars ) ;
 
 		if ( !contextStr )
 			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
@@ -515,9 +528,16 @@ class DeepMemory
 
 			for ( const msg of output.messages )
 			{
-				if ( !isValidRole( msg.info.role ) ) continue ;
+				if ( !this.isValidRole( msg.info.role ) ) continue ;
 
-				const text = extractText( msg as MessageLike ) ;
+				const id = msg.info.id ;
+				if ( id )
+				{
+					if ( this.seen.has( id ) ) continue ;
+					this.seen.add( id ) ;
+				}
+
+				const text = this.extractText( msg as MessageLike ) ;
 				if ( !text ) continue ;
 
 				records.push( { role: msg.info.role, text } ) ;
@@ -548,6 +568,7 @@ class DeepMemory
 
 // ─── Plugin ────────────────────────────────────────────────────────────────
 
+// Plugin factory: load config, open storage, register hooks
 export default ( async ( _ctx: PluginInput ) =>
 {
 	const opts = loadConfig() ;
@@ -586,17 +607,17 @@ export default ( async ( _ctx: PluginInput ) =>
 			} ),
 		},
 
-		"experimental.chat.messages.transform": ( _input, output ) =>
+		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
 			dm.handleMessagesTransform( output ) ;
 		},
 
-		"experimental.chat.system.transform": ( _input, output ) =>
+		"experimental.chat.system.transform": async ( _input, output ) =>
 		{
 			dm.handleSystemTransform( output ) ;
 		},
 
-		dispose: () =>
+		dispose: async () =>
 		{
 			dm.dispose() ;
 		},
