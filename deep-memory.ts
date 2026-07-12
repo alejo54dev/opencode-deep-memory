@@ -133,7 +133,7 @@ function timestamp() : string
 }
 
 // Load config from ~/.config/opencode/deep-memory.jsonc, fall back to defaults
-function loadConfig()
+function loadConfig() : typeof CONFIG
 {
 	let file : Record<string, unknown> = {} ;
 	try
@@ -177,7 +177,6 @@ function log( level : number, message : string ) : void
 
 // ─── Storage ───────────────────────────────────────────────────────────────
 
-// SQLite-backed turn store with FTS5 index for full-text search
 class Storage
 {
 	private db: Database ;
@@ -240,7 +239,7 @@ class Storage
 	}
 
 	// Open or create the SQLite DB with WAL pragmas and v2 schema (records + FTS5 external content + triggers)
-	static open() : Storage
+	public static open() : Storage
 	{
 		if ( !existsSync( STORAGE_DIR ) )
 			mkdirSync( STORAGE_DIR, { recursive: true } ) ;
@@ -299,7 +298,7 @@ class Storage
 	}
 
 	// Close the DB with a WAL checkpoint; safe to call multiple times
-	close() : void
+	public close() : void
 	{
 		try
 		{
@@ -310,7 +309,7 @@ class Storage
 	}
 
 	// Store messages in a transaction; dedup via content_hash UNIQUE constraint
-	storeRecords( messages: Array<{ role: "user" | "assistant"; text: string }> ) : number
+	public storeRecords( messages: Array<{ role: "user" | "assistant"; text: string }> ) : number
 	{
 		if ( !messages.length ) return 0 ;
 
@@ -334,7 +333,7 @@ class Storage
 	}
 
 	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
-	prune( keepDays: number ) : number
+	public prune( keepDays: number ) : number
 	{
 		if ( keepDays <= 0 ) return 0 ;
 
@@ -347,7 +346,7 @@ class Storage
 	}
 
 	// FTS5 search with age gate, ordered by insertion order (id)
-	searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
+	public searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
 		const sanitized = this.sanitizeFtsQuery( query ) ;
 		if ( !sanitized ) return [] ;
@@ -369,17 +368,17 @@ class Storage
 
 class DeepMemory
 {
-	private opts    : ReturnType<typeof loadConfig> ;
+	private config  : typeof CONFIG ;
 	private storage : Storage ;
 	private seen    : Set<string> = new Set() ;
 
 	// Initialize: prune old records on startup, seed seen ids
-	constructor( opts : ReturnType<typeof loadConfig>, storage : Storage )
+	constructor( config : typeof CONFIG, storage : Storage )
 	{
-		this.opts    = opts ;
+		this.config  = config ;
 		this.storage = storage ;
 
-		const pruned = this.storage.prune( this.opts.data_keep_days ) ;
+		const pruned = this.storage.prune( this.config.data_keep_days ) ;
 		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
 	}
 
@@ -463,33 +462,23 @@ class DeepMemory
 	// True if part is non-text/synthetic/ignored (runtime-injected)
 	protected isRuntime( p: { type: string; synthetic?: boolean; ignored?: boolean } ): boolean
 	{
-		const hit =
-		[
-			( v ) => v.type != "text",
-			( v ) => v.synthetic == true,
-			( v ) => v.ignored == true
-		];
+		const is = ( p.type != "text" || p.synthetic == true || p.ignored == true ) ;
 
-		if ( hit.some( ( check ) => check( p ) ) )
-		{
+		if ( is )
 			log( LOG_LEVEL.DEBUG, `Runtime part: type=${p.type} synthetic=${p.synthetic} ignored=${p.ignored}` ) ;
-			return true ;
-		}
 
-		return false ;
+		return is ;
 	}
 
-	// Extract plain text from a MessageLike.
-	// Skips runtime parts (non-text types, synthetic, ignored).
-	// Only natural user/assistant text passes through.
-	protected extractText( msg: MessageLike ) : string
+	// Extract plain text from a message, stripping runtime parts and noise tags
+	protected extractText( message: MessageLike ) : string
 	{
 		const parts: string[] = [] ;
 
-		for ( const p of msg.parts )
+		for ( const part of message.parts )
 		{
-			if ( this.isRuntime( p ) ) continue ;
-			if ( p.text ) parts.push( p.text ) ;
+			if ( this.isRuntime( part ) ) continue ;
+			if ( part.text ) parts.push( part.text ) ;
 		}
 
 		return parts.join( "\n" ).trim() ;
@@ -500,14 +489,14 @@ class DeepMemory
 	// Search memory, compress results into token-budgeted block
 	public recall( args : { query: string; max_results?: number } ) : string
 	{
-		const limit = args.max_results ?? this.opts.max_results ;
+		const limit = args.max_results ?? this.config.max_results ;
 		const hits  = this.storage.searchMemories(
-			args.query, limit, this.opts.search_max_days
+			args.query, limit, this.config.search_max_days
 		) ;
 
 		const contextStr = !hits.length
 			? ""
-			: this.compressMemories( hits, this.opts.max_tokens_memory, this.opts.max_snippet_chars ) ;
+			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
 		if ( !contextStr )
 			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
