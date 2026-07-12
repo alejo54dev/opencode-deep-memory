@@ -4,8 +4,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
-> Your AI has amnesia. Every session starts from scratch. You repeat configs, decisions, errors you already fixed. Not anymore!
-
+> Your AI has amnesia. Every session starts from scratch? You repeat configs, decisions, errors you already fixed? Not anymore!
 ## 💡 What it does
 
 > Your AI should remember. Period.
