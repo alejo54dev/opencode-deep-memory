@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.13
+*	@version 1.1.14
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -253,13 +253,15 @@ class Storage
 			PRAGMA cache_size           = 25000 ;
 			PRAGMA cache_spill          = ON ;
 			PRAGMA journal_mode         = WAL ;
+			PRAGMA journal_size_limit   = 0 ;
 			PRAGMA wal_autocheckpoint   = 1000 ;
 			PRAGMA automatic_index      = ON ;
 			PRAGMA recursive_triggers   = ON ;
 			PRAGMA foreign_keys         = ON ;
+			PRAGMA defer_foreign_keys   = OFF ;
+			PRAGMA auto_vacuum          = OFF ;
 			PRAGMA threads              = 4 ;
 			PRAGMA busy_timeout         = 5000 ;
-			PRAGMA user_version         = 2 ;
 		` );
 
 		db.exec( `
