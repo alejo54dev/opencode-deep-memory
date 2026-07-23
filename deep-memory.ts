@@ -253,7 +253,7 @@ class Storage
 			PRAGMA cache_size           = 25000 ;
 			PRAGMA cache_spill          = ON ;
 			PRAGMA journal_mode         = WAL ;
-			PRAGMA journal_size_limit   = 5000000 ;
+			PRAGMA journal_size_limit   = 8388608 ;
 			PRAGMA wal_autocheckpoint   = 1000 ;
 			PRAGMA automatic_index      = ON ;
 			PRAGMA recursive_triggers   = ON ;
