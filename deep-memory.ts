@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.14
+*	@version 1.1.15
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
