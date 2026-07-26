@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.16
+*	@version 1.1.17
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -92,6 +92,24 @@ const MAX_RESULTS_DESC =
 [
 	"Maximum number of results to return",
 	"(default: max_results config)",
+].join( " " ) ;
+
+const STORE_DESC =
+[
+	"Store a fact, decision, or piece of information in long-term memory.",
+	"Use this when you want to persist something specific that should be",
+	"retrievable by memory_search in future sessions.",
+].join( " " ) ;
+
+const STORE_ROLE_DESC =
+[
+	"Role for the stored record",
+	"(determines how it appears in search results)",
+].join( " " ) ;
+
+const STORE_CONTENT_DESC =
+[
+	"The content to store — a fact, decision, or piece of information",
 ].join( " " ) ;
 
 const SYSTEM_PROMPT =
@@ -253,7 +271,7 @@ class Storage
 			PRAGMA cache_size           = 25000 ;
 			PRAGMA cache_spill          = ON ;
 			PRAGMA journal_mode         = WAL ;
-			PRAGMA journal_size_limit   = 8388608 ;
+			PRAGMA journal_size_limit   = 0 ;
 			PRAGMA wal_autocheckpoint   = 1000 ;
 			PRAGMA automatic_index      = ON ;
 			PRAGMA recursive_triggers   = ON ;
@@ -299,12 +317,12 @@ class Storage
 		return new Storage( db ) ;
 	}
 
-	// Close the DB with a WAL checkpoint; safe to call multiple times
+	// Close the DB with a WAL checkpoint; safe to call multiple times ??
 	public close() : void
 	{
 		try
 		{
-			this.db.run( "PRAGMA wal_checkpoint( TRUNCATE )" ) ;
+			//this.db.run( "PRAGMA wal_checkpoint( TRUNCATE )" ) ;
 			this.db.close() ;
 		}
 		catch {}
@@ -506,6 +524,25 @@ class DeepMemory
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
 	}
 
+	// Store a specific fact/decision in long-term memory
+	public store( args : { role: "user" | "assistant"; content: string } ) : string
+	{
+		if ( !this.isValidRole( args.role ) )
+			return "<deep-memory>\n(error: invalid role)\n</deep-memory>" ;
+
+		const stored = this.storage.storeRecords( [
+			{ role: args.role, text: args.content }
+		] ) ;
+
+		if ( stored > 0 )
+		{
+			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${args.role})` ) ;
+			return "<deep-memory>\n(stored)\n</deep-memory>" ;
+		}
+
+		return "<deep-memory>\n(already exists)\n</deep-memory>" ;
+	}
+
 	// Store conversation messages after stripping noise (tags, metadata, etc)
 	public handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
 	{
@@ -593,8 +630,28 @@ export default ( async ( _ctx: PluginInput ) =>
 						return "<deep-memory>\n(error searching memory)\n</deep-memory>" ;
 					}
 				},
-			} ),
-		},
+		} ),
+
+		memory_store: tool( {
+			description: STORE_DESC,
+			args: {
+				role: tool.schema.string().describe( STORE_ROLE_DESC ),
+				content: tool.schema.string().describe( STORE_CONTENT_DESC ),
+			},
+			async execute( args, _context )
+			{
+				try
+				{
+					return dm.store( args ) ;
+				}
+				catch ( err )
+				{
+					log( LOG_LEVEL.ERROR, `memory_store: ${( err as Error ).message}` ) ;
+					return "<deep-memory>\n(error storing memory)\n</deep-memory>" ;
+				}
+			},
+		} ),
+	},
 
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{

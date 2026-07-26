@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.16-blue)
+![Version](https://img.shields.io/badge/version-1.1.17-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -16,6 +16,8 @@
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
 - **Smart pipeline** — FTS5 → age gate → insertion order → dedup → token budget.
+
+- **Store on demand** — `memory_store()` lets you persist a specific fact or decision when you need it to stick. Same dedup, same pipeline — just triggered by you instead of automatically.
 
 ## 🧠 Philosophy
 
@@ -124,4 +126,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.16
+MIT — version 1.1.17
