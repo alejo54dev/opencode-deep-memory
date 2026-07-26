@@ -518,7 +518,7 @@ class DeepMemory
 			? ""
 			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
-		if ( !contextStr )
+		if ( ! contextStr )
 			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
 
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
@@ -527,7 +527,7 @@ class DeepMemory
 	// Store a specific fact/decision in long-term memory
 	public store( args : { role: "user" | "assistant"; content: string } ) : string
 	{
-		if ( !this.isValidRole( args.role ) )
+		if ( ! this.isValidRole( args.role ) )
 			return "<deep-memory>\n(error: invalid role)\n</deep-memory>" ;
 
 		const stored = this.storage.storeRecords( [
@@ -630,28 +630,28 @@ export default ( async ( _ctx: PluginInput ) =>
 						return "<deep-memory>\n(error searching memory)\n</deep-memory>" ;
 					}
 				},
-		} ),
+			} ),
 
-		memory_store: tool( {
-			description: STORE_DESC,
-			args: {
-				role: tool.schema.string().describe( STORE_ROLE_DESC ),
-				content: tool.schema.string().describe( STORE_CONTENT_DESC ),
-			},
-			async execute( args, _context )
-			{
-				try
+			memory_store: tool( {
+				description: STORE_DESC,
+				args: {
+					role: tool.schema.string().describe( STORE_ROLE_DESC ),
+					content: tool.schema.string().describe( STORE_CONTENT_DESC ),
+				},
+				async execute( args, _context )
 				{
-					return dm.store( args ) ;
-				}
-				catch ( err )
-				{
-					log( LOG_LEVEL.ERROR, `memory_store: ${( err as Error ).message}` ) ;
-					return "<deep-memory>\n(error storing memory)\n</deep-memory>" ;
-				}
-			},
-		} ),
-	},
+					try
+					{
+						return dm.store( args ) ;
+					}
+					catch ( err )
+					{
+						log( LOG_LEVEL.ERROR, `memory_store: ${( err as Error ).message}` ) ;
+						return "<deep-memory>\n(error storing memory)\n</deep-memory>" ;
+					}
+				},
+			} ),
+		},
 
 		"experimental.chat.messages.transform": async ( _input, output ) =>
 		{
@@ -667,7 +667,7 @@ export default ( async ( _ctx: PluginInput ) =>
 		{
 			dm.dispose() ;
 		},
-	};
+	} ;
 } ) satisfies Plugin ;
 
 // ─── END ──────────────────────────────────────────────────────────────
