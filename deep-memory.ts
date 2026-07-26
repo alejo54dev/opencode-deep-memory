@@ -75,20 +75,20 @@ const FILTER_PATTERNS =
 	/\[Compressed[\s\S]*/gi,
 ];
 
-const TOOL_DESC =
+const SEARCH_DESC =
 [
 	"Search long-term memory using full-text search.",
 	"Use this when you need to recall past conversation records,",
 	"decisions, or facts stored across all sessions.",
 ].join( " " ) ;
 
-const QUERY_DESC =
+const SEARCH_QUERY_DESC =
 [
 	"The search query — natural language text",
 	"describing what to find in memory",
 ].join( " " ) ;
 
-const MAX_RESULTS_DESC =
+const SEARCH_MAX_RESULTS_DESC =
 [
 	"Maximum number of results to return",
 	"(default: max_results config)",
@@ -613,10 +613,10 @@ export default ( async ( _ctx: PluginInput ) =>
 	return {
 		tool: {
 			memory_search: tool( {
-				description: TOOL_DESC,
+				description: SEARCH_DESC,
 				args: {
-					query: tool.schema.string().describe( QUERY_DESC ),
-					max_results: tool.schema.number().optional().describe( MAX_RESULTS_DESC ),
+					query: tool.schema.string().describe( SEARCH_QUERY_DESC ),
+					max_results: tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
 				},
 				async execute( args, _context )
 				{
