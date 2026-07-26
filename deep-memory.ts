@@ -216,7 +216,7 @@ class Storage
 			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.id
 			 WHERE records_fts MATCH ?
 			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
-			 ORDER BY t.id
+			 ORDER BY bm25( records_fts )
 			 LIMIT ?`
 		);
 	}

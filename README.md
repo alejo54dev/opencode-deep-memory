@@ -15,7 +15,7 @@
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — FTS5 → age gate → insertion order → dedup → token budget.
+- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget.
 
 - **Store on demand** — `memory_store()` lets you persist a specific fact or decision when you need it to stick. Same dedup, same pipeline — just triggered by you instead of automatically.
 
