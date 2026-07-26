@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.19
+ *	@version 1.1.18
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -391,7 +391,6 @@ class DeepMemory
 	private config  : typeof CONFIG ;
 	private storage : Storage ;
 	private seen    : Set<string> = new Set() ;
-	private readonly MAX_SEEN = 10000 ;
 
 	// Initialize: prune old records on startup, seed seen ids
 	constructor( config : typeof CONFIG, storage : Storage )
@@ -561,11 +560,6 @@ class DeepMemory
 				if ( id )
 				{
 					if ( this.seen.has( id ) ) continue ;
-					if ( this.seen.size >= this.MAX_SEEN )
-					{
-						const first = this.seen.values().next().value ;
-						if ( first ) this.seen.delete( first ) ;
-					}
 					this.seen.add( id ) ;
 				}
 
