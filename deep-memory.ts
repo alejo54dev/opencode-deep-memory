@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.17
+ *	@version 1.1.18
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -239,7 +239,7 @@ class Storage
 	}
 
 	// Convert free-form text into a safe FTS5 OR-query (splits on non-alphanumeric into word tokens, keeps >1-char terms)
-	protected sanitizeFtsQuery( input: string ) : string
+	protected sanitizeQuery( input: string ) : string
 	{
 		if ( !input || typeof input !== "string" ) return "" ;
 
@@ -368,7 +368,7 @@ class Storage
 	// FTS5 search with age gate, ordered by insertion order (id)
 	public searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
-		const sanitized = this.sanitizeFtsQuery( query ) ;
+		const sanitized = this.sanitizeQuery( query ) ;
 		if ( !sanitized ) return [] ;
 
 		try
