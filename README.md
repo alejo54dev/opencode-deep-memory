@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.17-blue)
+![Version](https://img.shields.io/badge/version-1.1.18-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -9,13 +9,13 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 625 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 756 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
-- **Auto memory** — every message saves itself. Junk tags get stripped. You do nothing.
+- **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65. You do nothing.
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget.
+- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget. Storage-time trigram dedup skips near-duplicates.
 
 - **Store on demand** — `memory_store()` lets you persist a specific fact or decision when you need it to stick. Same dedup, same pipeline — just triggered by you instead of automatically.
 
@@ -32,7 +32,7 @@ When it asks, the pipeline searches the entire DB — across projects, across se
 ```mermaid
 flowchart TD
     A["📝 Messages flow<br/>through hook"]
-    A --> B["💾 Auto-store in SQLite<br/>Dedup + strip tags"]
+    A --> B["💾 Auto-store in SQLite<br/>Trigram dedup + strip tags"]
     B --> C["📎 System prompt gets<br/>tool reminder"]
 
     C --> D{"Model calls<br/>memory_search()?"}
@@ -126,4 +126,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.17
+MIT — version 1.1.18
