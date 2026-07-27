@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.18-blue)
+![Version](https://img.shields.io/badge/version-1.1.19-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -126,4 +126,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.18
+MIT — version 1.1.19

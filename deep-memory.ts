@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.1.18
+ *	@version 1.1.19
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -400,9 +400,7 @@ class Storage
 
 		try
 		{
-			return this.stmtSearch.all(
-				sanitized, maxAgeDays, maxAgeDays, limit
-			) as MemoryHit[] ;
+			return this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
 		}
 		catch
 		{
@@ -419,6 +417,7 @@ class Storage
 		const trigrams = new Set<string>() ;
 		for ( let i = 0; i <= normalized.length - 3; i++ )
 			trigrams.add( normalized.slice( i, i + 3 ) ) ;
+
 		return [ ...trigrams ] ;
 	}
 
@@ -427,6 +426,7 @@ class Storage
 	{
 		const setA = new Set( a ) ;
 		const setB = new Set( b ) ;
+
 		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
 
 		const [ smaller, larger ] = setA.size <= setB.size
@@ -437,6 +437,7 @@ class Storage
 			if ( larger.has( x ) ) inter++ ;
 
 		const union = setA.size + setB.size - inter ;
+
 		return union === 0 ? 0 : inter / union ;
 	}
 
@@ -445,6 +446,7 @@ class Storage
 	{
 		const normalized = this.normalizeContent( content ) ;
 		const trigrams = this.extractTrigrams( normalized ) ;
+
 		if ( trigrams.length < 3 ) return false ;
 
 		const query = trigrams.map( t => `"${t}"` ).join( " OR " ) ;
