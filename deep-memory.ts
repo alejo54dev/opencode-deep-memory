@@ -201,6 +201,7 @@ class Storage
 
 	private stmtInsert: ReturnType<Database["prepare"]> ;
 	private stmtSearch: ReturnType<Database["prepare"]> ;
+	private stmtTrigramSearch: ReturnType<Database["prepare"]> ;
 
 	// Prepare prepared statements: insert (dedup via UNIQUE) and search (FTS5 with age gate)
 	private constructor( db: Database )
@@ -218,6 +219,13 @@ class Storage
 			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
 			 ORDER BY bm25( records_fts )
 			 LIMIT ?`
+		);
+
+		this.stmtTrigramSearch = db.prepare(
+			`SELECT t.id, t.content
+			 FROM records_trigram JOIN records AS t ON records_trigram.rowid = t.id
+			 WHERE records_trigram MATCH ?
+			 LIMIT 10`
 		);
 	}
 
@@ -312,6 +320,25 @@ class Storage
 				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
 			END
 			;
+			CREATE VIRTUAL TABLE IF NOT EXISTS records_trigram USING fts5(
+				content,
+				content='records',
+				content_rowid='id',
+				tokenize='trigram'
+			);
+			CREATE TRIGGER IF NOT EXISTS records_trigram_ai AFTER INSERT ON records BEGIN
+				INSERT INTO records_trigram( rowid, content ) VALUES ( new.id, new.content );
+			END
+			;
+			CREATE TRIGGER IF NOT EXISTS records_trigram_ad AFTER DELETE ON records BEGIN
+				INSERT INTO records_trigram( records_trigram, rowid, content ) VALUES( 'delete', old.id, old.content );
+			END
+			;
+			CREATE TRIGGER IF NOT EXISTS records_trigram_au AFTER UPDATE ON records BEGIN
+				INSERT INTO records_trigram( records_trigram, rowid, content ) VALUES( 'delete', old.id, old.content );
+				INSERT INTO records_trigram( rowid, content ) VALUES ( new.id, new.content );
+			END
+			;
 		` );
 
 		return new Storage( db ) ;
@@ -381,6 +408,55 @@ class Storage
 		{
 			return [] ;
 		}
+	}
+
+	// Extract character 3-gram shingles from normalized text
+	protected extractTrigrams( text: string ) : string[]
+	{
+		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim() ;
+		if ( normalized.length < 3 ) return [] ;
+
+		const trigrams = new Set<string>() ;
+		for ( let i = 0; i <= normalized.length - 3; i++ )
+			trigrams.add( normalized.slice( i, i + 3 ) ) ;
+		return [ ...trigrams ] ;
+	}
+
+	// Jaccard similarity over trigram sets — used for storage-time dedup
+	protected trigramJaccard( a: string[], b: string[] ) : number
+	{
+		const setA = new Set( a ) ;
+		const setB = new Set( b ) ;
+		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
+
+		const [ smaller, larger ] = setA.size <= setB.size
+			? [ setA, setB ] : [ setB, setA ] ;
+
+		let inter = 0 ;
+		for ( const x of smaller )
+			if ( larger.has( x ) ) inter++ ;
+
+		const union = setA.size + setB.size - inter ;
+		return union === 0 ? 0 : inter / union ;
+	}
+
+	// Check if content is similar to any existing record via trigram overlap
+	public isSimilar( content: string ) : boolean
+	{
+		const normalized = this.normalizeContent( content ) ;
+		const trigrams = this.extractTrigrams( normalized ) ;
+		if ( trigrams.length < 3 ) return false ;
+
+		const query = trigrams.map( t => `"${t}"` ).join( " OR " ) ;
+		const results = this.stmtTrigramSearch.all( query ) as Array<{ id: number; content: string }> ;
+
+		for ( const r of results )
+		{
+			const existingTrigrams = this.extractTrigrams( r.content ) ;
+			if ( this.trigramJaccard( trigrams, existingTrigrams ) > 0.65 )
+				return true ;
+		}
+		return false ;
 	}
 }
 
@@ -565,6 +641,13 @@ class DeepMemory
 
 				const text = this.extractText( msg as MessageLike ) ;
 				if ( !text ) continue ;
+
+				// Trigram dedup: skip if similar to an existing record (threshold 0.65, min 20 chars)
+				if ( text.length > 20 && this.storage.isSimilar( text ) )
+				{
+					log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${msg.info.role})` ) ;
+					continue ;
+				}
 
 				records.push( { role: msg.info.role, text } ) ;
 			}
