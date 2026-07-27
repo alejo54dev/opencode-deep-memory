@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.20
+*	@version 1.1.21
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -96,7 +96,8 @@ const SEARCH_MAX_RESULTS_DESC =
 
 const STATS_DESC =
 [
-	"Return storage statistics: record count, size, oldest/newest records.",
+	"Return storage statistics: record count, size, oldest/newest records,",
+	"and dedup skip count.",
 ].join( " " ) ;
 
 const STORE_DESC =
@@ -206,7 +207,7 @@ class Storage
 
 	private stmtInsert: ReturnType<Database["prepare"]> ;
 	private stmtSearch: ReturnType<Database["prepare"]> ;
-	private stmtTrigramSearch: ReturnType<Database["prepare"]> ;
+	private stmtRecent: ReturnType<Database["prepare"]> ;
 
 	// Prepare prepared statements: insert (dedup via UNIQUE) and search (FTS5 with age gate)
 	private constructor( db: Database )
@@ -226,11 +227,8 @@ class Storage
 			 LIMIT ?`
 		);
 
-		this.stmtTrigramSearch = db.prepare(
-			`SELECT t.id, t.content
-			 FROM records_trigram JOIN records AS t ON records_trigram.rowid = t.id
-			 WHERE records_trigram MATCH ?
-			 LIMIT 10`
+		this.stmtRecent = db.prepare(
+			"SELECT content FROM records ORDER BY created_at DESC LIMIT ?"
 		);
 	}
 
@@ -325,25 +323,6 @@ class Storage
 				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
 			END
 			;
-			CREATE VIRTUAL TABLE IF NOT EXISTS records_trigram USING fts5(
-				content,
-				content='records',
-				content_rowid='id',
-				tokenize='trigram'
-			);
-			CREATE TRIGGER IF NOT EXISTS records_trigram_ai AFTER INSERT ON records BEGIN
-				INSERT INTO records_trigram( rowid, content ) VALUES ( new.id, new.content );
-			END
-			;
-			CREATE TRIGGER IF NOT EXISTS records_trigram_ad AFTER DELETE ON records BEGIN
-				INSERT INTO records_trigram( records_trigram, rowid, content ) VALUES( 'delete', old.id, old.content );
-			END
-			;
-			CREATE TRIGGER IF NOT EXISTS records_trigram_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_trigram( records_trigram, rowid, content ) VALUES( 'delete', old.id, old.content );
-				INSERT INTO records_trigram( rowid, content ) VALUES ( new.id, new.content );
-			END
-			;
 		` );
 
 		return new Storage( db ) ;
@@ -354,7 +333,6 @@ class Storage
 	{
 		try
 		{
-			//this.db.run( "PRAGMA wal_checkpoint( TRUNCATE )" ) ;
 			this.db.close() ;
 		}
 		catch {}
@@ -413,41 +391,16 @@ class Storage
 		}
 	}
 
-	// Extract character 3-gram shingles from normalized text
-	protected extractTrigrams( text: string ) : string[]
+	// Fetch recent records for in-memory dedup comparison
+	public fetchRecent( limit: number = 200 ) : string[]
 	{
-		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim() ;
-		if ( normalized.length < 3 ) return [] ;
-
-		const trigrams = new Set<string>() ;
-		for ( let i = 0; i <= normalized.length - 3; i++ )
-			trigrams.add( normalized.slice( i, i + 3 ) ) ;
-
-		return [ ...trigrams ] ;
-	}
-
-	// Jaccard similarity over trigram sets — used for storage-time dedup
-	protected trigramJaccard( a: string[], b: string[] ) : number
-	{
-		const setA = new Set( a ) ;
-		const setB = new Set( b ) ;
-
-		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
-
-		const [ smaller, larger ] = setA.size <= setB.size
-			? [ setA, setB ] : [ setB, setA ] ;
-
-		let inter = 0 ;
-		for ( const x of smaller )
-			if ( larger.has( x ) ) inter++ ;
-
-		const union = setA.size + setB.size - inter ;
-
-		return union === 0 ? 0 : inter / union ;
+		const rows = this.stmtRecent.all( limit ) as Array<{ content: string }> ;
+		return rows.map( r => r.content ) ;
 	}
 
 	// Return storage statistics: counts, sizes, oldest/newest records
-	public stats() : {
+	public stats() :
+	{
 		total: number ;
 		size_bytes: number ;
 		db_size_bytes: number ;
@@ -528,26 +481,6 @@ class Storage
 			newest_preview: newestPreview,
 		} ;
 	}
-
-	// Check if content is similar to any existing record via trigram overlap
-	public isSimilar( content: string ) : boolean
-	{
-		const normalized = this.normalizeContent( content ) ;
-		const trigrams = this.extractTrigrams( normalized ) ;
-
-		if ( trigrams.length < 3 ) return false ;
-
-		const query = trigrams.map( t => `"${t}"` ).join( " OR " ) ;
-		const results = this.stmtTrigramSearch.all( query ) as Array<{ id: number; content: string }> ;
-
-		for ( const r of results )
-		{
-			const existingTrigrams = this.extractTrigrams( r.content ) ;
-			if ( this.trigramJaccard( trigrams, existingTrigrams ) > 0.65 )
-				return true ;
-		}
-		return false ;
-	}
 }
 
 // ─── DeepMemory ────────────────────────────────────────────────────────────
@@ -556,7 +489,8 @@ class DeepMemory
 {
 	private config  : typeof CONFIG ;
 	private storage : Storage ;
-	private seen    : Set<string> = new Set() ;
+	private seen        : Set<string> = new Set() ;
+	private dedupSkipped: number     = 0 ;
 
 	// Initialize: prune old records on startup, seed seen ids
 	constructor( config : typeof CONFIG, storage : Storage )
@@ -574,6 +508,24 @@ class DeepMemory
 		return [ "user", "assistant" ].includes( role ) ;
 	}
 
+	// Generic Jaccard similarity over two sets — shared by contentOverlap and trigramJaccard
+	// Returns 0 for sets with fewer than 3 elements to avoid spurious matches
+	protected jaccard<T>( setA: Set<T>, setB: Set<T> ) : number
+	{
+		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
+
+		const [ smaller, larger ] = setA.size <= setB.size
+			? [ setA, setB ] : [ setB, setA ] ;
+
+		let inter = 0 ;
+		for ( const x of smaller )
+			if ( larger.has( x ) ) inter++ ;
+
+		const union = setA.size + setB.size - inter ;
+
+		return union === 0 ? 0 : inter / union ;
+	}
+
 	// Jaccard similarity over word tokens — used for dedup in compressMemories
 	// Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
 	protected contentOverlap( a: string, b: string ) : number
@@ -581,17 +533,56 @@ class DeepMemory
 		const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
 		const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
 
-		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
+		return this.jaccard( setA, setB ) ;
+	}
 
-		const [ smaller, larger ] = setA.size <= setB.size
-			? [ setA, setB ] : [ setB, setA ] ;
+	// Extract character 3-gram shingles from normalized text
+	protected extractTrigrams( text: string ) : string[]
+	{
+		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim() ;
+		if ( normalized.length < 3 ) return [] ;
 
-		let inter = 0;
-		for ( const x of smaller )
-			if ( larger.has( x ) ) inter++ ;
+		const trigrams = new Set<string>() ;
 
-		const union = setA.size + setB.size - inter ;
-		return union === 0 ? 0 : inter / union ;
+		for ( let i = 0; i <= normalized.length - 3; i++ )
+			trigrams.add( normalized.slice( i, i + 3 ) ) ;
+
+		return [ ...trigrams ] ;
+	}
+
+	// Jaccard similarity over trigram sets — used for storage-time dedup
+	protected trigramJaccard( a: string[], b: string[] ) : number
+	{
+		return this.jaccard( new Set( a ), new Set( b ) ) ;
+	}
+
+	// In-memory trigram dedup: fetch recent records and compute Jaccard.
+	// Threshold 0.65, min 20 chars. Fails open (returns false) on error.
+	protected isSimilar( content: string ) : boolean
+	{
+		if ( content.length < 20 ) return false ;
+
+		const trigrams = this.extractTrigrams( content ) ;
+		if ( trigrams.length < 3 ) return false ;
+
+		try
+		{
+			const recent = this.storage.fetchRecent( 200 ) ;
+
+			for ( const r of recent )
+			{
+				const existingTrigrams = this.extractTrigrams( r ) ;
+
+				if ( this.trigramJaccard( trigrams, existingTrigrams ) > 0.65 )
+					return true ;
+			}
+		}
+		catch
+		{
+			return false ;
+		}
+
+		return false ;
 	}
 
 	// Compress FTS hits into a token-budgeted context block with single-pass dedup
@@ -601,6 +592,7 @@ class DeepMemory
 		if ( !hits.length ) return "" ;
 
 		const pick: MemoryHit[] = [] ;
+
 		for ( const h of hits )
 		{
 			let dup = false ;
@@ -709,6 +701,7 @@ class DeepMemory
 		lines.push( `size: ${fmt( s.size_bytes )}` ) ;
 		lines.push( `db_size: ${fmt( s.db_size_bytes )}` ) ;
 		lines.push( `by_role: user=${s.user_count}, assistant=${s.assistant_count}` ) ;
+		lines.push( `dedup_skipped: ${this.dedupSkipped}` ) ;
 
 		if ( s.oldest )
 			lines.push( `oldest: ${s.oldest} (${s.oldest_role}) "${s.oldest_preview}"` ) ;
@@ -753,26 +746,35 @@ class DeepMemory
 
 			for ( const msg of output.messages )
 			{
-				if ( !this.isValidRole( msg.info.role ) ) continue ;
-
-				const id = msg.info.id ;
-				if ( id )
+				try
 				{
-					if ( this.seen.has( id ) ) continue ;
-					this.seen.add( id ) ;
+					if ( !this.isValidRole( msg.info.role ) ) continue ;
+
+					const id = msg.info.id ;
+					if ( id )
+					{
+						if ( this.seen.has( id ) ) continue ;
+						this.seen.add( id ) ;
+					}
+
+					const text = this.extractText( msg ) ;
+					if ( !text ) continue ;
+
+					// Trigram dedup: skip if similar to an existing record (threshold 0.65, min 20 chars)
+					if ( this.isSimilar( text ) )
+					{
+						log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${msg.info.role})` ) ;
+						this.dedupSkipped++ ;
+						continue ;
+					}
+
+					records.push( { role: msg.info.role, text } ) ;
 				}
-
-				const text = this.extractText( msg as MessageLike ) ;
-				if ( !text ) continue ;
-
-				// Trigram dedup: skip if similar to an existing record (threshold 0.65, min 20 chars)
-				if ( text.length > 20 && this.storage.isSimilar( text ) )
+				catch ( err )
 				{
-					log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${msg.info.role})` ) ;
+					log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` ) ;
 					continue ;
 				}
-
-				records.push( { role: msg.info.role, text } ) ;
 			}
 
 			const stored = this.storage.storeRecords( records ) ;

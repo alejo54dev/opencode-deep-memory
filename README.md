@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.20-blue)
+![Version](https://img.shields.io/badge/version-1.1.21-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -15,7 +15,7 @@
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
 
-- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget. Storage-time trigram dedup skips near-duplicates.
+- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget. Storage-time in-memory trigram dedup skips near-duplicates.
 
 - **Store on demand** — `memory_store()` lets you persist a specific fact or decision when you need it to stick. Same dedup, same pipeline — just triggered by you instead of automatically.
 
@@ -128,9 +128,13 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.20
+MIT — version 1.1.21
 
 ## 📋 Changelog
+
+### v1.1.21
+
+- **Trigram dedup redesign:** replaced fragile FTS5 trigram query (`records_trigram` table + triggers + `stmtTrigramSearch`) with in-memory Jaccard computation. `DeepMemory.isSimilar()` now fetches 200 recent records and computes trigram Jaccard directly — eliminates FTS5 syntax errors from special characters (`.`, `<`, etc.). Per-message error isolation in `handleMessagesTransform()` prevents one bad message from aborting the entire transform. Added `dedup_skipped` metric to `memory_stats`.
 
 ### v1.1.20
 
@@ -138,4 +142,4 @@ MIT — version 1.1.20
 
 ### v1.1.19
 
-- **Trigram storage-time dedup:** new `records_trigram` FTS5 table (trigram tokenizer) with triggers syncing from `records`. `Storage.isSimilar()` checks Jaccard overlap > 0.65 before insert, skipping near-duplicates (min 20 chars). Reduces DB growth in repetitive conversations. `memory_store` tool bypasses this (intentional persistence).
+- **Trigram storage-time dedup:** in-memory Jaccard over character 3-grams. `DeepMemory.isSimilar()` fetches 200 recent records and computes trigram Jaccard > 0.65 before insert, skipping near-duplicates (min 20 chars). No FTS5 trigram table — eliminates syntax errors from special characters. `memory_store` tool bypasses this (intentional persistence).
