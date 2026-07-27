@@ -9,7 +9,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 902 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 898 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65. You do nothing.
 
@@ -37,13 +37,17 @@ flowchart TD
     A --> B["💾 Auto-store in SQLite<br/>Trigram dedup + strip tags"]
     B --> C["📎 System prompt gets<br/>tool reminder"]
 
-    C --> D{"Model calls<br/>memory_search()?"}
-    D -->|"✅ Yes"| E["🔍 FTS5 cross-project<br/>(no session_id filter)"]
-    E --> F["Insertion Order<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
+    C --> D{"Model calls<br/>a tool?"}
+    D -->|"🔍 memory_search"| E["FTS5 cross-project<br/>(no session filter)"]
+    E --> F["Relevance ranking (bm25)<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
     F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
-    D -.->|"❌ No"| H["💬 Normal response"]
-    G -.-> H
-    H -.-> A
+    D -->|"💾 memory_store"| H["Store specific fact<br/>(bypasses trigram dedup)"]
+    D -->|"📊 memory_stats"| I["Return storage stats<br/>(count, size, roles)"]
+    D -.->|"❌ No"| J["💬 Normal response"]
+    G -.-> J
+    H -.-> J
+    I -.-> J
+    J -.-> A
 
     style A fill:#1a1a2e,stroke:#e94560,color:#fff
     style B fill:#0f3460,stroke:#53a8b6,color:#fff
@@ -52,7 +56,9 @@ flowchart TD
     style E fill:#0f3460,stroke:#53a8b6,color:#fff
     style F fill:#0f3460,stroke:#53a8b6,color:#fff
     style G fill:#1a1a2e,stroke:#e94560,color:#fff
-    style H fill:#1a1a2e,stroke:#e94560,color:#fff
+    style H fill:#0f3460,stroke:#53a8b6,color:#fff
+    style I fill:#0f3460,stroke:#53a8b6,color:#fff
+    style J fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ## 🎯 Use cases
@@ -117,7 +123,14 @@ tail -f ~/.config/opencode/deep-memory.log
 
 ## 💬 Notes
 
-- System-injected (`synthetic`/`ignored`) message parts are skipped during storage.
+- **Auto-store** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 (min 20 chars).
+- **Exact dedup** — `content_hash` (MD5, 32 chars) of `role + ":" + content.toLowerCase()` with a `UNIQUE` constraint catches exact duplicates at insert.
+- **`memory_store` bypass** — on-demand storage skips trigram dedup (intentional persistence). Same `content_hash` dedup still applies.
+- **Relevance ranking** — FTS5 results ordered by `bm25()` (most relevant first), not insertion order.
+- **Age gate** — `search_max_days` filters records in SQL via `julianday()` comparison. `0` = all records.
+- **Cross-project** — FTS5 search has no session filter. Finds context across all projects and sessions.
+- **System-injected parts** — message parts flagged `synthetic` or `ignored` are skipped during storage.
+- **Startup prune** — `data_keep_days` deletes old records on init. `0` = forever.
 
 Less is more. :)
 
@@ -142,4 +155,56 @@ MIT — version 1.1.21
 
 ### v1.1.19
 
+- **Seen Set cap:** added FIFO eviction cap at 10000 entries for the incremental store `seen` Set (later reverted — unnecessary for session-bound plugin).
+
+### v1.1.18
+
 - **Trigram storage-time dedup:** in-memory Jaccard over character 3-grams. `DeepMemory.isSimilar()` fetches 200 recent records and computes trigram Jaccard > 0.65 before insert, skipping near-duplicates (min 20 chars). No FTS5 trigram table — eliminates syntax errors from special characters. `memory_store` tool bypasses this (intentional persistence).
+- **Rename:** `sanitizeFtsQuery` → `sanitizeQuery`.
+
+### v1.1.17
+
+- **`memory_store` tool:** new tool that stores a specific fact, decision, or piece of information on demand. Delegates to existing `Storage.storeRecords()` (same dedup via `content_hash UNIQUE`, same `normalizeContent()` pipeline). Complements the auto-store hook — use for intentional persistence of key facts, decisions, or project context.
+
+### v1.1.13
+
+- **Version bump** to 1.1.13 (unify major.minor across the three plugins).
+
+### v1.0.55
+
+- **Version bump** to 1.0.55.
+
+### v1.0.54
+
+- **`FILTER_PATTERNS` applied globally** — `normalizeContent()` compiles each pattern with the `g` flag so all noise-tag occurrences are stripped, not just the first match.
+- **Rename:** constant `STRIP_PATTERNS` → `FILTER_PATTERNS`.
+
+### v1.0.53
+
+- **Hooks `async`:** `experimental.chat.messages.transform`, `experimental.chat.system.transform` y `dispose` ahora `async` (return `Promise<void>`), cumplen contrato `satisfies Plugin`.
+- **Incremental store:** `DeepMemory` trackea ids vistos (`seen: Set`) en `handleMessagesTransform`; saltea mensajes ya almacenados. Evita re-normalizar todo el historial cada turno (opencode pasa el historial completo en `messages.transform`). Dedup `UNIQUE` sigue como backstop tras reinicio.
+- **`sanitizeFtsQuery` F7-B:** regex separa en cualquier no-alfanumérico y umbral baja a >1 char. Recupera queries con separadores (`node.js`→`node js`) e identificadores cortos (`go`, `js`, `py`).
+
+### v1.0.52
+
+- **Config rename:** `fts_results` → `max_results`, `max_age_days` → `search_max_days`.
+- **New config key:** `data_keep_days` (old `max_age_days` split into age gate + prune). Default 1000.
+- **Startup prune:** `Storage.prune()` runs on init via `data_keep_days`, deletes old records.
+- **max_results default:** 5 → 20.
+- **search_max_days default:** 3000 → 600.
+- **Docs alignment:** README.md and AGENTS.md corrected to match code — `bm25()` relevance ranking, correct defaults.
+- **Storage normalization:** `normalizeContent()` collapses whitespace runs to a single space before insert (lossless for FTS, smaller DB, stricter dedup via `content_hash`).
+
+### v1.0.42
+
+- **`enabled` flag:** nuevo campo `"enabled": true/false` en config. Si es `false`, el plugin retorna `{}` sin registrar hooks. Patrón tomado de model-failover.
+
+### v1.0.41
+
+- **Schema v3:** Removed `entities` column. FTS5 changed from standalone (`content, entities` with `prefix`) to **external content** over `records.content` only. Triggers simplified. `user_version` stays 2.
+- **Removed features:** `extractEntities()`, `entity_weight`, `context_window` (+ `getContextWindow()`), `recency_halflife`, `overlap_window`, `overlap_threshold`, `dedup_threshold` (config), `getRecentRecords()`, overlap filter in `recall()`, `process.once("exit")`, BM25F → native `rank`.
+- **Restored search_max_days in SQL WHERE:** age gate is real again via `julianday()` comparison in the query, configurable via `search_max_days`. Default 600 days.
+- **Config reduced to 7 keys:** `enabled`, `max_results`, `search_max_days`, `max_tokens_memory`, `max_snippet_chars`, `data_keep_days`, `log_level`.
+- **max_results:** 20 → 5.
+- **max_snippet_chars:** 250 → 3000.
+- **Comments added:** Full function-level comments matching v1.0.35 style, adapted to current implementation.
