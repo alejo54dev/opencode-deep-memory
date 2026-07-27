@@ -365,7 +365,7 @@ class Storage
 		return result.changes ?? 0 ;
 	}
 
-	// FTS5 search with age gate, ordered by insertion order (id)
+	// FTS5 search with age gate, ordered by bm25 relevance
 	public searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
 	{
 		const sanitized = this.sanitizeQuery( query ) ;
