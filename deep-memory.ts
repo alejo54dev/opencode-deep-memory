@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.1.19
+*	@version 1.1.20
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -92,6 +92,11 @@ const SEARCH_MAX_RESULTS_DESC =
 [
 	"Maximum number of results to return",
 	"(default: max_results config)",
+].join( " " ) ;
+
+const STATS_DESC =
+[
+	"Return storage statistics: record count, size, oldest/newest records.",
 ].join( " " ) ;
 
 const STORE_DESC =
@@ -441,6 +446,89 @@ class Storage
 		return union === 0 ? 0 : inter / union ;
 	}
 
+	// Return storage statistics: counts, sizes, oldest/newest records
+	public stats() : {
+		total: number ;
+		size_bytes: number ;
+		db_size_bytes: number ;
+		user_count: number ;
+		assistant_count: number ;
+		oldest: string | null ;
+		newest: string | null ;
+		oldest_role: string | null ;
+		newest_role: string | null ;
+		oldest_preview: string | null ;
+		newest_preview: string | null ;
+	}
+	{
+		const row = this.db.prepare(
+			`SELECT
+				COUNT(*) AS total,
+				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
+				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
+				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count,
+				MIN( created_at ) AS oldest,
+				MAX( created_at ) AS newest
+			 FROM records`
+		).get() as {
+			total: number ;
+			size_bytes: number ;
+			user_count: number ;
+			assistant_count: number ;
+			oldest: string | null ;
+			newest: string | null ;
+		} | null ;
+
+		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count: number } | null ;
+		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size: number } | null ;
+		const dbSize = ( pc?.page_count ?? 0 ) * ( ps?.page_size ?? 0 ) ;
+
+		let oldestPreview: string | null = null ;
+		let newestPreview: string | null = null ;
+		let oldestRole: string | null = null ;
+		let newestRole: string | null = null ;
+
+		if ( row && row.oldest )
+		{
+			const o = this.db.prepare(
+				"SELECT role, content FROM records ORDER BY created_at ASC LIMIT 1"
+			).get() as { role: string; content: string } | null ;
+
+			if ( o )
+			{
+				oldestRole = o.role ;
+				oldestPreview = o.content.slice( 0, 80 ) ;
+			}
+		}
+
+		if ( row && row.newest )
+		{
+			const n = this.db.prepare(
+				"SELECT role, content FROM records ORDER BY created_at DESC LIMIT 1"
+			).get() as { role: string; content: string } | null ;
+
+			if ( n )
+			{
+				newestRole = n.role ;
+				newestPreview = n.content.slice( 0, 80 ) ;
+			}
+		}
+
+		return {
+			total: row?.total ?? 0,
+			size_bytes: row?.size_bytes ?? 0,
+			db_size_bytes: dbSize,
+			user_count: row?.user_count ?? 0,
+			assistant_count: row?.assistant_count ?? 0,
+			oldest: row?.oldest ?? null,
+			newest: row?.newest ?? null,
+			oldest_role: oldestRole,
+			newest_role: newestRole,
+			oldest_preview: oldestPreview,
+			newest_preview: newestPreview,
+		} ;
+	}
+
 	// Check if content is similar to any existing record via trigram overlap
 	public isSimilar( content: string ) : boolean
 	{
@@ -602,6 +690,39 @@ class DeepMemory
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
 	}
 
+	// Return storage statistics as formatted string
+	public stats() : string
+	{
+		const s = this.storage.stats() ;
+
+		const fmt = ( n: number ) : string =>
+		{
+			if ( n < 1024 ) return `${n} B` ;
+			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
+
+			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
+		} ;
+
+		const lines: string[] = [] ;
+
+		lines.push( `records: ${s.total}` ) ;
+		lines.push( `size: ${fmt( s.size_bytes )}` ) ;
+		lines.push( `db_size: ${fmt( s.db_size_bytes )}` ) ;
+		lines.push( `by_role: user=${s.user_count}, assistant=${s.assistant_count}` ) ;
+
+		if ( s.oldest )
+			lines.push( `oldest: ${s.oldest} (${s.oldest_role}) "${s.oldest_preview}"` ) ;
+		else
+			lines.push( "oldest: (none)" ) ;
+
+		if ( s.newest )
+			lines.push( `newest: ${s.newest} (${s.newest_role}) "${s.newest_preview}"` ) ;
+		else
+			lines.push( "newest: (none)" ) ;
+
+		return `<deep-memory-stats>\n${lines.join( "\n" )}\n</deep-memory-stats>` ;
+	}
+
 	// Store a specific fact/decision in long-term memory
 	public store( args : { role: "user" | "assistant"; content: string } ) : string
 	{
@@ -733,6 +854,23 @@ export default ( async ( _ctx: PluginInput ) =>
 					{
 						log( LOG_LEVEL.ERROR, `memory_store: ${( err as Error ).message}` ) ;
 						return "<deep-memory>\n(error storing memory)\n</deep-memory>" ;
+					}
+				},
+			} ),
+
+			memory_stats: tool( {
+				description: STATS_DESC,
+				args: {},
+				async execute( _args, _context )
+				{
+					try
+					{
+						return dm.stats() ;
+					}
+					catch ( err )
+					{
+						log( LOG_LEVEL.ERROR, `memory_stats: ${( err as Error ).message}` ) ;
+						return "<deep-memory-stats>\n(error reading stats)\n</deep-memory-stats>" ;
 					}
 				},
 			} ),
