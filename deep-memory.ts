@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
- *	@version 1.1.22
+*	@version 1.1.22
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -127,7 +127,7 @@ interface MemoryHit
 	id: string ;
 	role: "user" | "assistant" ;
 	content: string ;
-	created_at: string ;
+	created: string ;
 }
 
 interface MessageLike
@@ -211,16 +211,16 @@ class Storage
 		) ;
 
 		this.stmtSearch = db.prepare(
-			`SELECT t.id, t.role, t.content, t.created_at
+			`SELECT t.id, t.role, t.content, t.created
 			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.rowid
 			 WHERE records_fts MATCH ?
-			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
+			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created ) <= ? )
 			 ORDER BY bm25( records_fts )
 			 LIMIT ?`
 		);
 
 		this.stmtRecent = db.prepare(
-			"SELECT content FROM records ORDER BY created_at DESC LIMIT ?"
+			"SELECT content FROM records ORDER BY created DESC LIMIT ?"
 		);
 	}
 
@@ -287,31 +287,31 @@ class Storage
 
 		db.exec( `
 			CREATE TABLE IF NOT EXISTS records (
-				id TEXT PRIMARY KEY,
-				role TEXT NOT NULL CHECK( role IN ( 'user','assistant' ) ),
-				content TEXT NOT NULL,
-				created_at TEXT NOT NULL DEFAULT ( datetime( 'now' ) )
+				id       TEXT   PRIMARY KEY,
+				role     TEXT   NOT NULL CHECK( role IN ( 'user','assistant' ) ),
+				content  TEXT   NOT NULL,
+				created  TEXT   DEFAULT ( datetime( 'now' ) )
 			);
 			CREATE INDEX IF NOT EXISTS idx_records_created
-				ON records( created_at )
+				ON records( created )
 			;
 			CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
+				role UNINDEXED,
 				content,
 				content='records',
-				content_rowid='rowid',
 				tokenize="unicode61 remove_diacritics 1"
 			);
 			CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
-				INSERT INTO records_fts( rowid, content ) VALUES ( NEW.rowid, NEW.content );
+				INSERT INTO records_fts( rowid, role, content ) VALUES ( NEW.rowid, NEW.role, NEW.content );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', OLD.rowid, OLD.content );
+				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', OLD.rowid, OLD.content );
-				INSERT INTO records_fts( rowid, content ) VALUES ( NEW.rowid, NEW.content );
+				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
+				INSERT INTO records_fts( rowid, role, content ) VALUES ( NEW.rowid, NEW.role, NEW.content );
 			END
 			;
 		` );
@@ -358,7 +358,7 @@ class Storage
 		if ( keepDays <= 0 ) return 0 ;
 
 		const result = this.db.run(
-			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created_at ) > ?",
+			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
 			[ keepDays ]
 		) ;
 
@@ -410,8 +410,8 @@ class Storage
 				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
 				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
 				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count,
-				MIN( created_at ) AS oldest,
-				MAX( created_at ) AS newest
+				MIN( created ) AS oldest,
+				MAX( created ) AS newest
 			 FROM records`
 		).get() as {
 			total: number ;
@@ -434,7 +434,7 @@ class Storage
 		if ( row && row.oldest )
 		{
 			const o = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created_at ASC LIMIT 1"
+				"SELECT role, content FROM records ORDER BY created ASC LIMIT 1"
 			).get() as { role: string; content: string } | null ;
 
 			if ( o )
@@ -447,7 +447,7 @@ class Storage
 		if ( row && row.newest )
 		{
 			const n = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created_at DESC LIMIT 1"
+				"SELECT role, content FROM records ORDER BY created DESC LIMIT 1"
 			).get() as { role: string; content: string } | null ;
 
 			if ( n )
