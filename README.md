@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.21-blue)
+![Version](https://img.shields.io/badge/version-1.1.22-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -124,8 +124,8 @@ tail -f ~/.config/opencode/deep-memory.log
 ## 💬 Notes
 
 - **Auto-store** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 (min 20 chars).
-- **Exact dedup** — `content_hash` (MD5, 32 chars) of `role + ":" + content.toLowerCase()` with a `UNIQUE` constraint catches exact duplicates at insert.
-- **`memory_store` bypass** — on-demand storage skips trigram dedup (intentional persistence). Same `content_hash` dedup still applies.
+- **Exact dedup** — `id` (MD5, 32 chars) of `role + ":" + content.toLowerCase()` as `TEXT PRIMARY KEY` with `INSERT OR IGNORE` catches exact duplicates at insert.
+- **`memory_store` bypass** — on-demand storage skips trigram dedup (intentional persistence). Same `id` dedup still applies.
 - **Relevance ranking** — FTS5 results ordered by `bm25()` (most relevant first), not insertion order.
 - **Age gate** — `search_max_days` filters records in SQL via `julianday()` comparison. `0` = all records.
 - **Cross-project** — FTS5 search has no session filter. Finds context across all projects and sessions.
@@ -141,4 +141,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.21
+MIT — version 1.1.22

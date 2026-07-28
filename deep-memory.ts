@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.21
+ *	@version 1.1.22
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -75,51 +75,43 @@ const FILTER_PATTERNS =
 	/\[Compressed[\s\S]*/gi,
 ];
 
-const SEARCH_DESC =
-[
+const SEARCH_DESC = [
 	"Search long-term memory using full-text search.",
 	"Use this when you need to recall past conversation records,",
 	"decisions, or facts stored across all sessions.",
 ].join( " " ) ;
 
-const SEARCH_QUERY_DESC =
-[
+const SEARCH_QUERY_DESC = [
 	"The search query — natural language text",
 	"describing what to find in memory",
 ].join( " " ) ;
 
-const SEARCH_MAX_RESULTS_DESC =
-[
+const SEARCH_MAX_RESULTS_DESC = [
 	"Maximum number of results to return",
 	"(default: max_results config)",
 ].join( " " ) ;
 
-const STATS_DESC =
-[
+const STATS_DESC = [
 	"Return storage statistics: record count, size, oldest/newest records,",
 	"and dedup skip count.",
 ].join( " " ) ;
 
-const STORE_DESC =
-[
+const STORE_DESC = [
 	"Store a fact, decision, or piece of information in long-term memory.",
 	"Use this when you want to persist something specific that should be",
 	"retrievable by memory_search in future sessions.",
 ].join( " " ) ;
 
-const STORE_ROLE_DESC =
-[
+const STORE_ROLE_DESC = [
 	"Role for the stored record",
 	"(determines how it appears in search results)",
 ].join( " " ) ;
 
-const STORE_CONTENT_DESC =
-[
+const STORE_CONTENT_DESC = [
 	"The content to store — a fact, decision, or piece of information",
 ].join( " " ) ;
 
-const SYSTEM_PROMPT =
-[
+const SYSTEM_PROMPT = [
 	"<deep-memory>",
 	"You have access to memory_search().",
 	"Call it at session start to recall past context.",
@@ -132,7 +124,7 @@ const SYSTEM_PROMPT =
 
 interface MemoryHit
 {
-	id: number ;
+	id: string ;
 	role: "user" | "assistant" ;
 	content: string ;
 	created_at: string ;
@@ -209,18 +201,18 @@ class Storage
 	private stmtSearch: ReturnType<Database["prepare"]> ;
 	private stmtRecent: ReturnType<Database["prepare"]> ;
 
-	// Prepare prepared statements: insert (dedup via UNIQUE) and search (FTS5 with age gate)
+	// Prepare prepared statements: insert (dedup via id PK) and search (FTS5 with age gate)
 	private constructor( db: Database )
 	{
 		this.db = db ;
 
 		this.stmtInsert = db.prepare(
-			"INSERT OR IGNORE INTO records ( role, content, content_hash ) VALUES ( ?, ?, ? )"
+			"INSERT OR IGNORE INTO records ( id, role, content ) VALUES ( ?, ?, ? )"
 		) ;
 
 		this.stmtSearch = db.prepare(
 			`SELECT t.id, t.role, t.content, t.created_at
-			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.id
+			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.rowid
 			 WHERE records_fts MATCH ?
 			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
 			 ORDER BY bm25( records_fts )
@@ -232,7 +224,7 @@ class Storage
 		);
 	}
 
-	// MD5 hex of role + content — dedup key for storeRecords (lowercased hash for case-insensitive dedup)
+	// MD5 hex of role + content — record ID and dedup key (lowercased hash for case-insensitive dedup)
 	protected hashContent( role: string, content: string ) : string
 	{
 		return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
@@ -295,10 +287,9 @@ class Storage
 
 		db.exec( `
 			CREATE TABLE IF NOT EXISTS records (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				id TEXT PRIMARY KEY,
 				role TEXT NOT NULL CHECK( role IN ( 'user','assistant' ) ),
 				content TEXT NOT NULL,
-				content_hash TEXT NOT NULL UNIQUE,
 				created_at TEXT NOT NULL DEFAULT ( datetime( 'now' ) )
 			);
 			CREATE INDEX IF NOT EXISTS idx_records_created
@@ -307,20 +298,20 @@ class Storage
 			CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
 				content,
 				content='records',
-				content_rowid='id',
+				content_rowid='rowid',
 				tokenize="unicode61 remove_diacritics 1"
 			);
 			CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
-				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+				INSERT INTO records_fts( rowid, content ) VALUES ( NEW.rowid, NEW.content );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
+				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', OLD.rowid, OLD.content );
 			END
 			;
 			CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
-				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', OLD.rowid, OLD.content );
+				INSERT INTO records_fts( rowid, content ) VALUES ( NEW.rowid, NEW.content );
 			END
 			;
 		` );
@@ -338,7 +329,7 @@ class Storage
 		catch {}
 	}
 
-	// Store messages in a transaction; dedup via content_hash UNIQUE constraint
+	// Store messages in a transaction; dedup via id PK (INSERT OR IGNORE)
 	public storeRecords( messages: Array<{ role: "user" | "assistant"; text: string }> ) : number
 	{
 		if ( !messages.length ) return 0 ;
@@ -351,9 +342,8 @@ class Storage
 				const text = this.normalizeContent( m.text ) ;
 				if ( !text ) continue ;
 
-				const result = this.stmtInsert.run(
-					m.role, text, this.hashContent( m.role, text )
-				) ;
+				const id = this.hashContent( m.role, text ) ;
+				const result = this.stmtInsert.run( id, m.role, text ) ;
 				if ( result.changes ) count++ ;
 			}
 		} ) ;
@@ -487,10 +477,10 @@ class Storage
 
 class DeepMemory
 {
-	private config  : typeof CONFIG ;
+	private config : typeof CONFIG ;
 	private storage : Storage ;
-	private seen        : Set<string> = new Set() ;
-	private dedupSkipped: number     = 0 ;
+	private seen : Set<string> = new Set() ;
+	private dedupSkipped : number = 0 ;
 
 	// Initialize: prune old records on startup, seed seen ids
 	constructor( config : typeof CONFIG, storage : Storage )
@@ -568,7 +558,6 @@ class DeepMemory
 		try
 		{
 			const recent = this.storage.fetchRecent( 200 ) ;
-
 			for ( const r of recent )
 			{
 				const existingTrigrams = this.extractTrigrams( r ) ;
