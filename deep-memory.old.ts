@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.23
+*	@version 1.1.21
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -75,43 +75,51 @@ const FILTER_PATTERNS =
 	/\[Compressed[\s\S]*/gi,
 ];
 
-const SEARCH_DESC = [
+const SEARCH_DESC =
+[
 	"Search long-term memory using full-text search.",
 	"Use this when you need to recall past conversation records,",
 	"decisions, or facts stored across all sessions.",
 ].join( " " ) ;
 
-const SEARCH_QUERY_DESC = [
+const SEARCH_QUERY_DESC =
+[
 	"The search query — natural language text",
 	"describing what to find in memory",
 ].join( " " ) ;
 
-const SEARCH_MAX_RESULTS_DESC = [
+const SEARCH_MAX_RESULTS_DESC =
+[
 	"Maximum number of results to return",
 	"(default: max_results config)",
 ].join( " " ) ;
 
-const STATS_DESC = [
+const STATS_DESC =
+[
 	"Return storage statistics: record count, size, oldest/newest records,",
 	"and dedup skip count.",
 ].join( " " ) ;
 
-const STORE_DESC = [
+const STORE_DESC =
+[
 	"Store a fact, decision, or piece of information in long-term memory.",
 	"Use this when you want to persist something specific that should be",
 	"retrievable by memory_search in future sessions.",
 ].join( " " ) ;
 
-const STORE_ROLE_DESC = [
+const STORE_ROLE_DESC =
+[
 	"Role for the stored record",
 	"(determines how it appears in search results)",
 ].join( " " ) ;
 
-const STORE_CONTENT_DESC = [
+const STORE_CONTENT_DESC =
+[
 	"The content to store — a fact, decision, or piece of information",
 ].join( " " ) ;
 
-const SYSTEM_PROMPT = [
+const SYSTEM_PROMPT =
+[
 	"<deep-memory>",
 	"You have access to memory_search().",
 	"Call it at session start to recall past context.",
@@ -124,10 +132,10 @@ const SYSTEM_PROMPT = [
 
 interface MemoryHit
 {
-	id: string ;
+	id: number ;
 	role: "user" | "assistant" ;
 	content: string ;
-	created: string ;
+	created_at: string ;
 }
 
 interface MessageLike
@@ -161,6 +169,7 @@ function loadConfig() : typeof CONFIG
 		log( LOG_LEVEL.ERROR, `Config not found or parse error at ${ CONFIG_FILE }` ) ;
 	}
 
+	// Validate between file values and defaults values.
 	CONFIG.enabled            = file.enabled                           ?? CONFIG.enabled ;
 	CONFIG.max_results        = Math.max( 1,   file.max_results        ?? CONFIG.max_results ) ;
 	CONFIG.search_max_days    = Math.max( 0,   file.search_max_days    ?? CONFIG.search_max_days ) ;
@@ -190,111 +199,40 @@ function log( level : number, message : string ) : void
 	catch {}
 }
 
-// ─── DeepMemory ────────────────────────────────────────────────────────────
+// ─── Storage ───────────────────────────────────────────────────────────────
 
-class DeepMemory
+class Storage
 {
-	private config : typeof CONFIG ;
-	private db : Database ;
+	private db: Database ;
+
 	private stmtInsert: ReturnType<Database["prepare"]> ;
 	private stmtSearch: ReturnType<Database["prepare"]> ;
 	private stmtRecent: ReturnType<Database["prepare"]> ;
-	private seen : Set<string> = new Set() ;
-	private dedupSkipped : number = 0 ;
 
-	constructor( config : typeof CONFIG )
+	// Prepare prepared statements: insert (dedup via UNIQUE) and search (FTS5 with age gate)
+	private constructor( db: Database )
 	{
-		this.config = config ;
+		this.db = db ;
 
-		if ( !existsSync( STORAGE_DIR ) )
-			mkdirSync( STORAGE_DIR, { recursive: true } ) ;
-
-		this.db = new Database( DB_PATH ) ;
-
-		this.db.exec(
-			`PRAGMA synchronous          = NORMAL ;
-			 PRAGMA temp_store           = MEMORY ;
-			 PRAGMA page_size            = 8192 ;
-			 PRAGMA cache_size           = 25000 ;
-			 PRAGMA cache_spill          = ON ;
-			 PRAGMA journal_mode         = WAL ;
-			 PRAGMA journal_size_limit   = 0 ;
-			 PRAGMA wal_autocheckpoint   = 1000 ;
-			 PRAGMA automatic_index      = ON ;
-			 PRAGMA recursive_triggers   = ON ;
-			 PRAGMA foreign_keys         = ON ;
-			 PRAGMA defer_foreign_keys   = OFF ;
-			 PRAGMA auto_vacuum          = OFF ;
-			 PRAGMA threads              = 4 ;
-			 PRAGMA busy_timeout         = 5000 ;`
-		);
-
-		this.db.exec(
-			`CREATE TABLE IF NOT EXISTS records (
-				id       TEXT   PRIMARY KEY,
-				role     TEXT   NOT NULL CHECK( role IN ( 'user','assistant' ) ),
-				content  TEXT   NOT NULL,
-				created  TEXT   DEFAULT ( datetime( 'now' ) )
-			 );
-			 CREATE INDEX IF NOT EXISTS idx_records_created
-				ON records( created )
-			 ;
-			 CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
-				role UNINDEXED,
-				content,
-				content='records',
-				tokenize="unicode61 remove_diacritics 1"
-			 );
-			 CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
-				INSERT INTO records_fts( rowid, role, content ) VALUES ( NEW.rowid, NEW.role, NEW.content );
-			 END
-			 ;
-			 CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
-			 END
-			 ;
-			 CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
-				INSERT INTO records_fts( rowid, role, content ) VALUES ( NEW.rowid, NEW.role, NEW.content );
-			 END
-			 ;`
-		);
-
-		this.stmtInsert = this.db.prepare(
-			"INSERT OR IGNORE INTO records ( id, role, content ) VALUES ( ?, ?, ? )"
+		this.stmtInsert = db.prepare(
+			"INSERT OR IGNORE INTO records ( role, content, content_hash ) VALUES ( ?, ?, ? )"
 		) ;
 
-		this.stmtSearch = this.db.prepare(
-			`SELECT t.id, t.role, t.content, t.created
-			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.rowid
+		this.stmtSearch = db.prepare(
+			`SELECT t.id, t.role, t.content, t.created_at
+			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.id
 			 WHERE records_fts MATCH ?
-			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created ) <= ? )
+			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created_at ) <= ? )
 			 ORDER BY bm25( records_fts )
 			 LIMIT ?`
 		);
 
-		this.stmtRecent = this.db.prepare(
-			"SELECT content FROM records ORDER BY created DESC LIMIT ?"
+		this.stmtRecent = db.prepare(
+			"SELECT content FROM records ORDER BY created_at DESC LIMIT ?"
 		);
-
-		const pruned = this.prune( this.config.data_keep_days ) ;
-		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
 	}
 
-	// ── Internal helpers ───────────────────────────────────────────────
-
-	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
-	protected prune( keepDays: number ) : number
-	{
-		if ( keepDays <= 0 ) return 0 ;
-		const result = this.db.run(
-			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
-			[ keepDays ]
-		) ;
-		return result.changes ?? 0 ;
-	}
-
-	// MD5 hex of role + content — record ID and dedup key (lowercased hash for case-insensitive dedup)
+	// MD5 hex of role + content — dedup key for storeRecords (lowercased hash for case-insensitive dedup)
 	protected hashContent( role: string, content: string ) : string
 	{
 		return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
@@ -329,13 +267,248 @@ class DeepMemory
 		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 	}
 
+	// Open or create the SQLite DB with WAL pragmas and v2 schema (records + FTS5 external content + triggers)
+	public static open() : Storage
+	{
+		if ( !existsSync( STORAGE_DIR ) )
+			mkdirSync( STORAGE_DIR, { recursive: true } ) ;
+
+		const db = new Database( DB_PATH ) ;
+
+		db.exec( `
+			PRAGMA synchronous          = NORMAL ;
+			PRAGMA temp_store           = MEMORY ;
+			PRAGMA page_size            = 8192 ;
+			PRAGMA cache_size           = 25000 ;
+			PRAGMA cache_spill          = ON ;
+			PRAGMA journal_mode         = WAL ;
+			PRAGMA journal_size_limit   = 0 ;
+			PRAGMA wal_autocheckpoint   = 1000 ;
+			PRAGMA automatic_index      = ON ;
+			PRAGMA recursive_triggers   = ON ;
+			PRAGMA foreign_keys         = ON ;
+			PRAGMA defer_foreign_keys   = OFF ;
+			PRAGMA auto_vacuum          = OFF ;
+			PRAGMA threads              = 4 ;
+			PRAGMA busy_timeout         = 5000 ;
+		` );
+
+		db.exec( `
+			CREATE TABLE IF NOT EXISTS records (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				role TEXT NOT NULL CHECK( role IN ( 'user','assistant' ) ),
+				content TEXT NOT NULL,
+				content_hash TEXT NOT NULL UNIQUE,
+				created_at TEXT NOT NULL DEFAULT ( datetime( 'now' ) )
+			);
+			CREATE INDEX IF NOT EXISTS idx_records_created
+				ON records( created_at )
+			;
+			CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
+				content,
+				content='records',
+				content_rowid='id',
+				tokenize="unicode61 remove_diacritics 1"
+			);
+			CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
+				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+			END
+			;
+			CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
+				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
+			END
+			;
+			CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
+				INSERT INTO records_fts( records_fts, rowid, content ) VALUES( 'delete', old.id, old.content );
+				INSERT INTO records_fts( rowid, content ) VALUES ( new.id, new.content );
+			END
+			;
+		` );
+
+		return new Storage( db ) ;
+	}
+
+	// Close the DB with a WAL checkpoint; safe to call multiple times ??
+	public close() : void
+	{
+		try
+		{
+			this.db.close() ;
+		}
+		catch {}
+	}
+
+	// Store messages in a transaction; dedup via content_hash UNIQUE constraint
+	public storeRecords( messages: Array<{ role: "user" | "assistant"; text: string }> ) : number
+	{
+		if ( !messages.length ) return 0 ;
+
+		let count = 0 ;
+		const tx = this.db.transaction( ( msgs: typeof messages ) =>
+		{
+			for ( const m of msgs )
+			{
+				const text = this.normalizeContent( m.text ) ;
+				if ( !text ) continue ;
+
+				const result = this.stmtInsert.run(
+					m.role, text, this.hashContent( m.role, text )
+				) ;
+				if ( result.changes ) count++ ;
+			}
+		} ) ;
+
+		tx( messages ) ;
+		return count ;
+	}
+
+	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
+	public prune( keepDays: number ) : number
+	{
+		if ( keepDays <= 0 ) return 0 ;
+
+		const result = this.db.run(
+			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created_at ) > ?",
+			[ keepDays ]
+		) ;
+
+		return result.changes ?? 0 ;
+	}
+
+	// FTS5 search with age gate, ordered by bm25 relevance
+	public searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
+	{
+		const sanitized = this.sanitizeQuery( query ) ;
+		if ( !sanitized ) return [] ;
+
+		try
+		{
+			return this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
+		}
+		catch
+		{
+			return [] ;
+		}
+	}
+
+	// Fetch recent records for in-memory dedup comparison
+	public fetchRecent( limit: number = 200 ) : string[]
+	{
+		const rows = this.stmtRecent.all( limit ) as Array<{ content: string }> ;
+		return rows.map( r => r.content ) ;
+	}
+
+	// Return storage statistics: counts, sizes, oldest/newest records
+	public stats() :
+	{
+		total: number ;
+		size_bytes: number ;
+		db_size_bytes: number ;
+		user_count: number ;
+		assistant_count: number ;
+		oldest: string | null ;
+		newest: string | null ;
+		oldest_role: string | null ;
+		newest_role: string | null ;
+		oldest_preview: string | null ;
+		newest_preview: string | null ;
+	}
+	{
+		const row = this.db.prepare(
+			`SELECT
+				COUNT(*) AS total,
+				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
+				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
+				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count,
+				MIN( created_at ) AS oldest,
+				MAX( created_at ) AS newest
+			 FROM records`
+		).get() as {
+			total: number ;
+			size_bytes: number ;
+			user_count: number ;
+			assistant_count: number ;
+			oldest: string | null ;
+			newest: string | null ;
+		} | null ;
+
+		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count: number } | null ;
+		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size: number } | null ;
+		const dbSize = ( pc?.page_count ?? 0 ) * ( ps?.page_size ?? 0 ) ;
+
+		let oldestPreview: string | null = null ;
+		let newestPreview: string | null = null ;
+		let oldestRole: string | null = null ;
+		let newestRole: string | null = null ;
+
+		if ( row && row.oldest )
+		{
+			const o = this.db.prepare(
+				"SELECT role, content FROM records ORDER BY created_at ASC LIMIT 1"
+			).get() as { role: string; content: string } | null ;
+
+			if ( o )
+			{
+				oldestRole = o.role ;
+				oldestPreview = o.content.slice( 0, 80 ) ;
+			}
+		}
+
+		if ( row && row.newest )
+		{
+			const n = this.db.prepare(
+				"SELECT role, content FROM records ORDER BY created_at DESC LIMIT 1"
+			).get() as { role: string; content: string } | null ;
+
+			if ( n )
+			{
+				newestRole = n.role ;
+				newestPreview = n.content.slice( 0, 80 ) ;
+			}
+		}
+
+		return {
+			total: row?.total ?? 0,
+			size_bytes: row?.size_bytes ?? 0,
+			db_size_bytes: dbSize,
+			user_count: row?.user_count ?? 0,
+			assistant_count: row?.assistant_count ?? 0,
+			oldest: row?.oldest ?? null,
+			newest: row?.newest ?? null,
+			oldest_role: oldestRole,
+			newest_role: newestRole,
+			oldest_preview: oldestPreview,
+			newest_preview: newestPreview,
+		} ;
+	}
+}
+
+// ─── DeepMemory ────────────────────────────────────────────────────────────
+
+class DeepMemory
+{
+	private config  : typeof CONFIG ;
+	private storage : Storage ;
+	private seen        : Set<string> = new Set() ;
+	private dedupSkipped: number     = 0 ;
+
+	// Initialize: prune old records on startup, seed seen ids
+	constructor( config : typeof CONFIG, storage : Storage )
+	{
+		this.config  = config ;
+		this.storage = storage ;
+
+		const pruned = this.storage.prune( this.config.data_keep_days ) ;
+		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
+	}
+
 	// Only valid role
 	protected isValidRole( role: string ) : boolean
 	{
 		return [ "user", "assistant" ].includes( role ) ;
 	}
 
-	// Generic Jaccard similarity over two sets
+	// Generic Jaccard similarity over two sets — shared by contentOverlap and trigramJaccard
 	// Returns 0 for sets with fewer than 3 elements to avoid spurious matches
 	protected jaccard<T>( setA: Set<T>, setB: Set<T> ) : number
 	{
@@ -354,6 +527,7 @@ class DeepMemory
 	}
 
 	// Jaccard similarity over word tokens — used for dedup in compressMemories
+	// Returns 0 for texts with fewer than 3 significant tokens to avoid spurious matches
 	protected contentOverlap( a: string, b: string ) : number
 	{
 		const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
@@ -393,7 +567,8 @@ class DeepMemory
 
 		try
 		{
-			const recent = this.fetchRecent( 200 ) ;
+			const recent = this.storage.fetchRecent( 200 ) ;
+
 			for ( const r of recent )
 			{
 				const existingTrigrams = this.extractTrigrams( r ) ;
@@ -410,30 +585,8 @@ class DeepMemory
 		return false ;
 	}
 
-	// Fetch recent records for in-memory dedup comparison
-	protected fetchRecent( limit: number = 200 ) : string[]
-	{
-		const rows = this.stmtRecent.all( limit ) as Array<{ content: string }> ;
-		return rows.map( r => r.content ) ;
-	}
-
-	// FTS5 search with age gate, ordered by bm25 relevance
-	protected searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
-	{
-		const sanitized = this.sanitizeQuery( query ) ;
-		if ( !sanitized ) return [] ;
-
-		try
-		{
-			return this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
-		}
-		catch
-		{
-			return [] ;
-		}
-	}
-
 	// Compress FTS hits into a token-budgeted context block with single-pass dedup
+	// Skips hits that overlap heavily with already-picked ones
 	protected compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars: number ) : string
 	{
 		if ( !hits.length ) return "" ;
@@ -460,6 +613,7 @@ class DeepMemory
 
 		for ( const h of pick )
 		{
+			// smart truncation — cut at last sentence boundary before limit, force-cut if none
 			let snippet = h.content.trim() ;
 			if ( snippet.length > maxSnippetChars )
 			{
@@ -472,6 +626,7 @@ class DeepMemory
 				? `→ ${snippet}`
 				: `  ${snippet}` ;
 
+			// word-count heuristic (~1 word ≈ 1 token for GPT-class models)
 			const est = Math.max( 1, line.split( /\s+/ ).filter( Boolean ).length ) ;
 			if ( est > budget ) break ;
 
@@ -507,13 +662,13 @@ class DeepMemory
 		return parts.join( "\n" ).trim() ;
 	}
 
-	// ── Public hooks ──────────────────────────────────────────────────
+	// ── Public hooks ──────────────────────────────────────────────────────
 
 	// Search memory, compress results into token-budgeted block
 	public recall( args : { query: string; max_results?: number } ) : string
 	{
 		const limit = args.max_results ?? this.config.max_results ;
-		const hits  = this.searchMemories(
+		const hits  = this.storage.searchMemories(
 			args.query, limit, this.config.search_max_days
 		) ;
 
@@ -521,7 +676,7 @@ class DeepMemory
 			? ""
 			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
-		if ( !contextStr )
+		if ( ! contextStr )
 			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
 
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
@@ -530,80 +685,31 @@ class DeepMemory
 	// Return storage statistics as formatted string
 	public stats() : string
 	{
-		const row = this.db.prepare(
-			`SELECT
-				COUNT(*) AS total,
-				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
-				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
-				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count,
-				MIN( created ) AS oldest,
-				MAX( created ) AS newest
-			 FROM records`
-		).get() as {
-			total: number ;
-			size_bytes: number ;
-			user_count: number ;
-			assistant_count: number ;
-			oldest: string | null ;
-			newest: string | null ;
-		} | null ;
-
-		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count: number } | null ;
-		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size: number } | null ;
-		const dbSize = ( pc?.page_count ?? 0 ) * ( ps?.page_size ?? 0 ) ;
-
-		let oldestPreview: string | null = null ;
-		let newestPreview: string | null = null ;
-		let oldestRole: string | null = null ;
-		let newestRole: string | null = null ;
-
-		if ( row && row.oldest )
-		{
-			const o = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created ASC LIMIT 1"
-			).get() as { role: string; content: string } | null ;
-
-			if ( o )
-			{
-				oldestRole = o.role ;
-				oldestPreview = o.content.slice( 0, 80 ) ;
-			}
-		}
-
-		if ( row && row.newest )
-		{
-			const n = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created DESC LIMIT 1"
-			).get() as { role: string; content: string } | null ;
-
-			if ( n )
-			{
-				newestRole = n.role ;
-				newestPreview = n.content.slice( 0, 80 ) ;
-			}
-		}
+		const s = this.storage.stats() ;
 
 		const fmt = ( n: number ) : string =>
 		{
 			if ( n < 1024 ) return `${n} B` ;
 			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
+
 			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
 		} ;
 
 		const lines: string[] = [] ;
-		lines.push( `records: ${row?.total ?? 0}` ) ;
-		lines.push( `size: ${fmt( row?.size_bytes ?? 0 )}` ) ;
-		lines.push( `db_size: ${fmt( dbSize )}` ) ;
-		lines.push( `by_role: user=${row?.user_count ?? 0}, assistant=${row?.assistant_count ?? 0}` ) ;
+
+		lines.push( `records: ${s.total}` ) ;
+		lines.push( `size: ${fmt( s.size_bytes )}` ) ;
+		lines.push( `db_size: ${fmt( s.db_size_bytes )}` ) ;
+		lines.push( `by_role: user=${s.user_count}, assistant=${s.assistant_count}` ) ;
 		lines.push( `dedup_skipped: ${this.dedupSkipped}` ) ;
 
-		if ( row?.oldest )
-			lines.push( `oldest: ${row.oldest} (${oldestRole}) "${oldestPreview}"` ) ;
+		if ( s.oldest )
+			lines.push( `oldest: ${s.oldest} (${s.oldest_role}) "${s.oldest_preview}"` ) ;
 		else
 			lines.push( "oldest: (none)" ) ;
 
-		if ( row?.newest )
-			lines.push( `newest: ${row.newest} (${newestRole}) "${newestPreview}"` ) ;
+		if ( s.newest )
+			lines.push( `newest: ${s.newest} (${s.newest_role}) "${s.newest_preview}"` ) ;
 		else
 			lines.push( "newest: (none)" ) ;
 
@@ -613,17 +719,14 @@ class DeepMemory
 	// Store a specific fact/decision in long-term memory
 	public store( args : { role: "user" | "assistant"; content: string } ) : string
 	{
-		if ( !this.isValidRole( args.role ) )
+		if ( ! this.isValidRole( args.role ) )
 			return "<deep-memory>\n(error: invalid role)\n</deep-memory>" ;
 
-		const normalized = this.normalizeContent( args.content ) ;
-		if ( !normalized )
-			return "<deep-memory>\n(error: empty after normalization)\n</deep-memory>" ;
+		const stored = this.storage.storeRecords( [
+			{ role: args.role, text: args.content }
+		] ) ;
 
-		const id = this.hashContent( args.role, normalized ) ;
-		const result = this.stmtInsert.run( id, args.role, normalized ) ;
-
-		if ( result.changes )
+		if ( stored > 0 )
 		{
 			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${args.role})` ) ;
 			return "<deep-memory>\n(stored)\n</deep-memory>" ;
@@ -639,7 +742,7 @@ class DeepMemory
 		{
 			if ( !output.messages?.length ) return ;
 
-			let stored = 0 ;
+			const records: Array<{ role: "user" | "assistant" ; text: string }> = [] ;
 
 			for ( const msg of output.messages )
 			{
@@ -654,23 +757,18 @@ class DeepMemory
 						this.seen.add( id ) ;
 					}
 
-					const raw = this.extractText( msg ) ;
-					if ( !raw ) continue ;
+					const text = this.extractText( msg ) ;
+					if ( !text ) continue ;
 
-					const normalized = this.normalizeContent( raw ) ;
-					if ( !normalized ) continue ;
-
-					if ( this.isSimilar( normalized ) )
+					// Trigram dedup: skip if similar to an existing record (threshold 0.65, min 20 chars)
+					if ( this.isSimilar( text ) )
 					{
 						log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${msg.info.role})` ) ;
 						this.dedupSkipped++ ;
 						continue ;
 					}
 
-					const hashId = this.hashContent( msg.info.role, normalized ) ;
-					const result = this.stmtInsert.run( hashId, msg.info.role, normalized ) ;
-
-					if ( result.changes ) stored++ ;
+					records.push( { role: msg.info.role, text } ) ;
 				}
 				catch ( err )
 				{
@@ -679,6 +777,7 @@ class DeepMemory
 				}
 			}
 
+			const stored = this.storage.storeRecords( records ) ;
 			if ( stored ) log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
 		}
 		catch ( err )
@@ -696,11 +795,7 @@ class DeepMemory
 	// Close DB and log shutdown
 	public dispose() : void
 	{
-		try
-		{
-			this.db.close() ;
-		}
-		catch {}
+		this.storage.close() ;
 		log( LOG_LEVEL.INFO, "Disposed" ) ;
 	}
 }
@@ -718,7 +813,8 @@ export default ( async ( _ctx: PluginInput ) =>
 		return {} ;
 	}
 
-	const dm = new DeepMemory( opts ) ;
+	const storage   = Storage.open() ;
+	const dm        = new DeepMemory( opts, storage ) ;
 
 	log( LOG_LEVEL.INFO, "Initialized" ) ;
 
