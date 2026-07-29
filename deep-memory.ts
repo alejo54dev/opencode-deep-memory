@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.23
+*	@version 1.1.24
 *	@author Alejandro Carraretto
 *	@author DeepSeek-V4
 *	@license MIT
@@ -124,16 +124,16 @@ const SYSTEM_PROMPT = [
 
 interface MemoryHit
 {
-	id: string ;
-	role: "user" | "assistant" ;
-	content: string ;
-	created: string ;
+	id : string ;
+	role : "user" | "assistant" ;
+	content : string ;
+	created : string ;
 }
 
 interface MessageLike
 {
-	info: { role: "user" | "assistant"; id?: string } ;
-	parts: Array<{ type: string; text?: string; synthetic?: boolean; ignored?: boolean }> ;
+	info:  { role: "user" | "assistant"; id? : string; sessionID? : string } ;
+	parts : Array<{ type : string; text? : string; synthetic? : boolean; ignored? : boolean }> ;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ function timestamp() : string
 // Load config from ~/.config/opencode/deep-memory.jsonc, fall back to defaults
 function loadConfig() : typeof CONFIG
 {
-	let file : Record<string, unknown> = {} ;
+	let file: Record<string, unknown> = {} ;
 	try
 	{
 		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) ;
@@ -196,18 +196,21 @@ class DeepMemory
 {
 	private config : typeof CONFIG ;
 	private db : Database ;
-	private stmtInsert: ReturnType<Database["prepare"]> ;
-	private stmtSearch: ReturnType<Database["prepare"]> ;
-	private stmtRecent: ReturnType<Database["prepare"]> ;
+	private stmtInsert : ReturnType<Database["prepare"]> ;
+	private stmtSearch : ReturnType<Database["prepare"]> ;
+	private stmtRecent : ReturnType<Database["prepare"]> ;
 	private seen : Set<string> = new Set() ;
 	private dedupSkipped : number = 0 ;
+	private client : PluginInput[ "client" ] ;
+	private sessionID : string | null = null ;
 
-	constructor( config : typeof CONFIG )
+	constructor( config : typeof CONFIG, client : PluginInput[ "client" ] )
 	{
 		this.config = config ;
+		this.client = client ;
 
-		if ( !existsSync( STORAGE_DIR ) )
-			mkdirSync( STORAGE_DIR, { recursive: true } ) ;
+		if ( ! existsSync( STORAGE_DIR ) )
+			mkdirSync( STORAGE_DIR, { recursive : true } ) ;
 
 		this.db = new Database( DB_PATH ) ;
 
@@ -284,7 +287,7 @@ class DeepMemory
 	// ── Internal helpers ───────────────────────────────────────────────
 
 	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
-	protected prune( keepDays: number ) : number
+	protected prune( keepDays : number ) : number
 	{
 		if ( keepDays <= 0 ) return 0 ;
 		const result = this.db.run(
@@ -295,15 +298,15 @@ class DeepMemory
 	}
 
 	// MD5 hex of role + content — record ID and dedup key (lowercased hash for case-insensitive dedup)
-	protected hashContent( role: string, content: string ) : string
+	protected hashContent( role : string, content : string ) : string
 	{
 		return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
 	}
 
 	// Strip DCP/system/thinking/tool tags (preserves original case)
-	protected normalizeContent( text: string | undefined ) : string
+	protected normalizeContent( text : string | undefined ) : string
 	{
-		if ( !text ) return "" ;
+		if ( ! text ) return "" ;
 
 		for ( const pattern of FILTER_PATTERNS )
 			text = text.replace( pattern, "" ) ;
@@ -312,9 +315,9 @@ class DeepMemory
 	}
 
 	// Convert free-form text into a safe FTS5 OR-query (splits on non-alphanumeric into word tokens, keeps >1-char terms)
-	protected sanitizeQuery( input: string ) : string
+	protected sanitizeQuery( input : string ) : string
 	{
-		if ( !input || typeof input !== "string" ) return "" ;
+		if ( ! input || typeof input !== "string" ) return "" ;
 
 		const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}]+/gu, " " ) ;
 		const raw     = cleaned.split( /\s+/ ) ;
@@ -324,20 +327,20 @@ class DeepMemory
 		for ( const t of raw )
 			if ( t.length > 1 ) terms.push( t ) ;
 
-		if ( !terms.length ) return "" ;
+		if ( ! terms.length ) return "" ;
 
 		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 	}
 
 	// Only valid role
-	protected isValidRole( role: string ) : boolean
+	protected isValidRole( role : string ) : boolean
 	{
 		return [ "user", "assistant" ].includes( role ) ;
 	}
 
 	// Generic Jaccard similarity over two sets
 	// Returns 0 for sets with fewer than 3 elements to avoid spurious matches
-	protected jaccard<T>( setA: Set<T>, setB: Set<T> ) : number
+	protected jaccard<T>( setA : Set<T>, setB : Set<T> ) : number
 	{
 		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
 
@@ -354,7 +357,7 @@ class DeepMemory
 	}
 
 	// Jaccard similarity over word tokens — used for dedup in compressMemories
-	protected contentOverlap( a: string, b: string ) : number
+	protected contentOverlap( a : string, b : string ) : number
 	{
 		const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
 		const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
@@ -363,7 +366,7 @@ class DeepMemory
 	}
 
 	// Extract character 3-gram shingles from normalized text
-	protected extractTrigrams( text: string ) : string[]
+	protected extractTrigrams( text : string ) : string[]
 	{
 		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim() ;
 		if ( normalized.length < 3 ) return [] ;
@@ -377,14 +380,14 @@ class DeepMemory
 	}
 
 	// Jaccard similarity over trigram sets — used for storage-time dedup
-	protected trigramJaccard( a: string[], b: string[] ) : number
+	protected trigramJaccard( a : string[], b : string[] ) : number
 	{
 		return this.jaccard( new Set( a ), new Set( b ) ) ;
 	}
 
 	// In-memory trigram dedup: fetch recent records and compute Jaccard.
 	// Threshold 0.65, min 20 chars. Fails open (returns false) on error.
-	protected isSimilar( content: string ) : boolean
+	protected isSimilar( content : string ) : boolean
 	{
 		if ( content.length < 20 ) return false ;
 
@@ -411,17 +414,17 @@ class DeepMemory
 	}
 
 	// Fetch recent records for in-memory dedup comparison
-	protected fetchRecent( limit: number = 200 ) : string[]
+	protected fetchRecent( limit : number = 200 ) : string[]
 	{
-		const rows = this.stmtRecent.all( limit ) as Array<{ content: string }> ;
+		const rows = this.stmtRecent.all( limit ) as Array<{ content : string }> ;
 		return rows.map( r => r.content ) ;
 	}
 
 	// FTS5 search with age gate, ordered by bm25 relevance
-	protected searchMemories( query: string, limit: number, maxAgeDays: number ) : MemoryHit[]
+	protected searchMemories( query : string, limit : number, maxAgeDays : number ) : MemoryHit[]
 	{
 		const sanitized = this.sanitizeQuery( query ) ;
-		if ( !sanitized ) return [] ;
+		if ( ! sanitized ) return [] ;
 
 		try
 		{
@@ -434,11 +437,11 @@ class DeepMemory
 	}
 
 	// Compress FTS hits into a token-budgeted context block with single-pass dedup
-	protected compressMemories( hits: MemoryHit[], maxTokens: number, maxSnippetChars: number ) : string
+	protected compressMemories( hits : MemoryHit[], maxTokens : number, maxSnippetChars : number ) : string
 	{
-		if ( !hits.length ) return "" ;
+		if ( ! hits.length ) return "" ;
 
-		const pick: MemoryHit[] = [] ;
+		const pick : MemoryHit[] = [] ;
 
 		for ( const h of hits )
 		{
@@ -452,10 +455,10 @@ class DeepMemory
 					break ;
 				}
 			}
-			if ( !dup ) pick.push( h ) ;
+			if ( ! dup ) pick.push( h ) ;
 		}
 
-		const parts: string[] = [] ;
+		const parts : string[] = [] ;
 		let budget = maxTokens ;
 
 		for ( const h of pick )
@@ -465,6 +468,7 @@ class DeepMemory
 			{
 				const truncated = snippet.slice( 0, maxSnippetChars ) ;
 				const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ ) ;
+
 				snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
 			}
 
@@ -483,7 +487,7 @@ class DeepMemory
 	}
 
 	// True if part is non-text/synthetic/ignored (runtime-injected)
-	protected isRuntime( p: { type: string; synthetic?: boolean; ignored?: boolean } ): boolean
+	protected isRuntime( p : { type : string; synthetic? : boolean; ignored? : boolean } ) : boolean
 	{
 		const is = ( p.type != "text" || p.synthetic == true || p.ignored == true ) ;
 
@@ -494,9 +498,9 @@ class DeepMemory
 	}
 
 	// Extract plain text from a message, stripping runtime parts and noise tags
-	protected extractText( message: MessageLike ) : string
+	protected extractText( message : MessageLike ) : string
 	{
-		const parts: string[] = [] ;
+		const parts : string[] = [] ;
 
 		for ( const part of message.parts )
 		{
@@ -510,18 +514,18 @@ class DeepMemory
 	// ── Public hooks ──────────────────────────────────────────────────
 
 	// Search memory, compress results into token-budgeted block
-	public recall( args : { query: string; max_results?: number } ) : string
+	public recall( args : { query : string; max_results? : number } ) : string
 	{
 		const limit = args.max_results ?? this.config.max_results ;
 		const hits  = this.searchMemories(
 			args.query, limit, this.config.search_max_days
 		) ;
 
-		const contextStr = !hits.length
+		const contextStr = ! hits.length
 			? ""
 			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
-		if ( !contextStr )
+		if ( ! contextStr )
 			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
 
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
@@ -540,28 +544,28 @@ class DeepMemory
 				MAX( created ) AS newest
 			 FROM records`
 		).get() as {
-			total: number ;
-			size_bytes: number ;
-			user_count: number ;
-			assistant_count: number ;
-			oldest: string | null ;
-			newest: string | null ;
+			total : number ;
+			size_bytes : number ;
+			user_count : number ;
+			assistant_count : number ;
+			oldest : string | null ;
+			newest : string | null ;
 		} | null ;
 
-		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count: number } | null ;
-		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size: number } | null ;
+		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count : number } | null ;
+		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size : number } | null ;
 		const dbSize = ( pc?.page_count ?? 0 ) * ( ps?.page_size ?? 0 ) ;
 
-		let oldestPreview: string | null = null ;
-		let newestPreview: string | null = null ;
-		let oldestRole: string | null = null ;
-		let newestRole: string | null = null ;
+		let oldestPreview : string | null = null ;
+		let newestPreview : string | null = null ;
+		let oldestRole : string | null = null ;
+		let newestRole : string | null = null ;
 
 		if ( row && row.oldest )
 		{
 			const o = this.db.prepare(
 				"SELECT role, content FROM records ORDER BY created ASC LIMIT 1"
-			).get() as { role: string; content: string } | null ;
+			).get() as { role : string; content : string } | null ;
 
 			if ( o )
 			{
@@ -574,7 +578,7 @@ class DeepMemory
 		{
 			const n = this.db.prepare(
 				"SELECT role, content FROM records ORDER BY created DESC LIMIT 1"
-			).get() as { role: string; content: string } | null ;
+			).get() as { role : string; content : string } | null ;
 
 			if ( n )
 			{
@@ -583,14 +587,14 @@ class DeepMemory
 			}
 		}
 
-		const fmt = ( n: number ) : string =>
+		const fmt = ( n : number ) : string =>
 		{
 			if ( n < 1024 ) return `${n} B` ;
 			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
 			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
 		} ;
 
-		const lines: string[] = [] ;
+		const lines : string[] = [] ;
 		lines.push( `records: ${row?.total ?? 0}` ) ;
 		lines.push( `size: ${fmt( row?.size_bytes ?? 0 )}` ) ;
 		lines.push( `db_size: ${fmt( dbSize )}` ) ;
@@ -611,13 +615,13 @@ class DeepMemory
 	}
 
 	// Store a specific fact/decision in long-term memory
-	public store( args : { role: "user" | "assistant"; content: string } ) : string
+	public store( args : { role : "user" | "assistant"; content : string } ) : string
 	{
-		if ( !this.isValidRole( args.role ) )
+		if ( ! this.isValidRole( args.role ) )
 			return "<deep-memory>\n(error: invalid role)\n</deep-memory>" ;
 
 		const normalized = this.normalizeContent( args.content ) ;
-		if ( !normalized )
+		if ( ! normalized )
 			return "<deep-memory>\n(error: empty after normalization)\n</deep-memory>" ;
 
 		const id = this.hashContent( args.role, normalized ) ;
@@ -637,7 +641,7 @@ class DeepMemory
 	{
 		try
 		{
-			if ( !output.messages?.length ) return ;
+			if ( ! output.messages?.length ) return ;
 
 			let stored = 0 ;
 
@@ -645,7 +649,10 @@ class DeepMemory
 			{
 				try
 				{
-					if ( !this.isValidRole( msg.info.role ) ) continue ;
+					if ( ! this.isValidRole( msg.info.role ) ) continue ;
+
+				if ( msg.info.sessionID )
+					this.sessionID = msg.info.sessionID ;
 
 					const id = msg.info.id ;
 					if ( id )
@@ -655,10 +662,10 @@ class DeepMemory
 					}
 
 					const raw = this.extractText( msg ) ;
-					if ( !raw ) continue ;
+					if ( ! raw ) continue ;
 
 					const normalized = this.normalizeContent( raw ) ;
-					if ( !normalized ) continue ;
+					if ( ! normalized ) continue ;
 
 					if ( this.isSimilar( normalized ) )
 					{
@@ -688,14 +695,58 @@ class DeepMemory
 	}
 
 	// Append memory-search tool reminder to system prompt
-	public handleSystemTransform( output : { system: string[] } ) : void
+	public handleSystemTransform( output : { system : string[] } ) : void
 	{
 		output.system.push( SYSTEM_PROMPT ) ;
 	}
 
-	// Close DB and log shutdown
-	public dispose() : void
+	// Fetch last session message via SDK (backfill for the message transform never sees)
+	protected async fetchLastMessage() : Promise<MessageLike | null>
 	{
+		if ( ! this.sessionID ) return null ;
+
+		try
+		{
+			const res = await this.client.session.messages( {
+				path  : { id : this.sessionID } ,
+				query : { limit : 1 } ,
+			} ) ;
+
+			return res?.data?.[ 0 ] ?? null ;
+		}
+		catch
+		{
+			log( LOG_LEVEL.ERROR, "fetchLastMessage failed" ) ;
+			return null ;
+		}
+	}
+
+	// Backfill last message on dispose, close DB
+	public async dispose() : Promise<void>
+	{
+		try
+		{
+			const msg = await this.fetchLastMessage() ;
+			if ( msg )
+			{
+				const raw  = this.extractText( msg ) ;
+				const norm = this.normalizeContent( raw ) ;
+
+				if ( norm && this.isValidRole( msg.info.role ) && ! this.isSimilar( norm ) )
+				{
+					const id   = this.hashContent( msg.info.role, norm ) ;
+					const res  = this.stmtInsert.run( id, msg.info.role, norm ) ;
+
+					if ( res.changes )
+						log( LOG_LEVEL.DEBUG, `Stored last message (role=${msg.info.role})` ) ;
+				}
+			}
+		}
+		catch ( err )
+		{
+			log( LOG_LEVEL.ERROR, `Dispose backfill: ${( err as Error ).message}` ) ;
+		}
+
 		try
 		{
 			this.db.close() ;
@@ -708,27 +759,27 @@ class DeepMemory
 // ─── Plugin ────────────────────────────────────────────────────────────────
 
 // Plugin factory: load config, open storage, register hooks
-export default ( async ( _ctx: PluginInput ) =>
+export default ( async ( ctx : PluginInput ) =>
 {
 	const opts = loadConfig() ;
 
-	if ( !opts.enabled )
+	if ( ! opts.enabled )
 	{
 		log( LOG_LEVEL.INFO, "Disabled" ) ;
 		return {} ;
 	}
 
-	const dm = new DeepMemory( opts ) ;
+	const dm = new DeepMemory( opts, ctx.client ) ;
 
 	log( LOG_LEVEL.INFO, "Initialized" ) ;
 
 	return {
-		tool: {
-			memory_search: tool( {
-				description: SEARCH_DESC,
-				args: {
-					query: tool.schema.string().describe( SEARCH_QUERY_DESC ),
-					max_results: tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
+		tool : {
+			memory_search : tool( {
+				description : SEARCH_DESC,
+				args : {
+					query : tool.schema.string().describe( SEARCH_QUERY_DESC ),
+					max_results : tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
 				},
 				async execute( args, _context )
 				{
@@ -744,11 +795,11 @@ export default ( async ( _ctx: PluginInput ) =>
 				},
 			} ),
 
-			memory_store: tool( {
-				description: STORE_DESC,
-				args: {
-					role: tool.schema.string().describe( STORE_ROLE_DESC ),
-					content: tool.schema.string().describe( STORE_CONTENT_DESC ),
+			memory_store : tool( {
+				description : STORE_DESC,
+				args : {
+					role : tool.schema.string().describe( STORE_ROLE_DESC ),
+					content : tool.schema.string().describe( STORE_CONTENT_DESC ),
 				},
 				async execute( args, _context )
 				{
@@ -764,9 +815,9 @@ export default ( async ( _ctx: PluginInput ) =>
 				},
 			} ),
 
-			memory_stats: tool( {
-				description: STATS_DESC,
-				args: {},
+			memory_stats : tool( {
+				description : STATS_DESC,
+				args : {},
 				async execute( _args, _context )
 				{
 					try
@@ -782,17 +833,17 @@ export default ( async ( _ctx: PluginInput ) =>
 			} ),
 		},
 
-		"experimental.chat.messages.transform": async ( _input, output ) =>
+		"experimental.chat.messages.transform" : async ( _input, output ) =>
 		{
 			dm.handleMessagesTransform( output ) ;
 		},
 
-		"experimental.chat.system.transform": async ( _input, output ) =>
+		"experimental.chat.system.transform" : async ( _input, output ) =>
 		{
 			dm.handleSystemTransform( output ) ;
 		},
 
-		dispose: async () =>
+		dispose : async () =>
 		{
 			dm.dispose() ;
 		},

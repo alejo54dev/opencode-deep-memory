@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.22-blue)
+![Version](https://img.shields.io/badge/version-1.1.24-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![OpenCode](https://img.shields.io/badge/OpenCode-plugin-purple)
 
@@ -9,7 +9,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 898 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 853 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65. You do nothing.
 
@@ -141,4 +141,4 @@ Less is more. :)
 
 ## 📄 License
 
-MIT — version 1.1.22
+MIT — version 1.1.24
