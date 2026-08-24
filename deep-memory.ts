@@ -23,7 +23,7 @@
 *	@name deep-memory
 *	@version 1.1.24
 *	@author Alejandro Carraretto
-*	@author DeepSeek-V4
+*	@assistant DeepSeek-V4
 *	@license MIT
 */
 
@@ -132,7 +132,7 @@ interface MemoryHit
 
 interface MessageLike
 {
-	info:  { role: "user" | "assistant"; id? : string; sessionID? : string } ;
+	info : { role: "user" | "assistant"; id? : string; sessionID? : string } ;
 	parts : Array<{ type : string; text? : string; synthetic? : boolean; ignored? : boolean }> ;
 }
 
@@ -196,9 +196,9 @@ class DeepMemory
 {
 	private config : typeof CONFIG ;
 	private db : Database ;
-	private stmtInsert : ReturnType<Database["prepare"]> ;
-	private stmtSearch : ReturnType<Database["prepare"]> ;
-	private stmtRecent : ReturnType<Database["prepare"]> ;
+	private stmtInsert : ReturnType<Database[ "prepare" ]> ;
+	private stmtSearch : ReturnType<Database[ "prepare" ]> ;
+	private stmtRecent : ReturnType<Database[ "prepare" ]> ;
 	private seen : Set<string> = new Set() ;
 	private dedupSkipped : number = 0 ;
 	private client : PluginInput[ "client" ] ;
@@ -290,10 +290,12 @@ class DeepMemory
 	protected prune( keepDays : number ) : number
 	{
 		if ( keepDays <= 0 ) return 0 ;
+
 		const result = this.db.run(
 			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
 			[ keepDays ]
 		) ;
+
 		return result.changes ?? 0 ;
 	}
 
@@ -651,8 +653,8 @@ class DeepMemory
 				{
 					if ( ! this.isValidRole( msg.info.role ) ) continue ;
 
-				if ( msg.info.sessionID )
-					this.sessionID = msg.info.sessionID ;
+					if ( msg.info.sessionID )
+						this.sessionID = msg.info.sessionID ;
 
 					const id = msg.info.id ;
 					if ( id )
