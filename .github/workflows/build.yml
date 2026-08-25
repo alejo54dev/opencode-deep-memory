@@ -11,4 +11,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - run: bun build --target bun deep-memory.ts
+      - run: bun build --target bun deep-memory.ts --external @opencode-ai/plugin
