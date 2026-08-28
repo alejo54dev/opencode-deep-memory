@@ -1,7 +1,7 @@
 # Deep Memory (tiny brain, big thoughts)
 
 ![Version](https://img.shields.io/badge/version-1.1.24-blue)
-![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
 > Your AI has amnesia. Every session starts from scratch? You repeat configs, decisions, errors you already fixed? Not anymore!
@@ -141,4 +141,4 @@ Less is more. :)
 
 ## 📄 License
 
-Apache-2.0 — version 1.1.24
+AGPL-3.0 — version 1.1.24
