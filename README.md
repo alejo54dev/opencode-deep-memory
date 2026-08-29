@@ -116,8 +116,8 @@ tail -f ~/.config/opencode/deep-memory.log
 ```log
 [2026-07-05T10:30:00] [INFO]: Config loaded
 [2026-07-05T10:30:01] [INFO]: Initialized
-[2026-07-05T10:35:12] [INFO]: Stored: 1 record
-[2026-07-05T10:40:23] [INFO]: Stored: 1 record
+[2026-07-05T10:35:12] [INFO]: Stored: 1 records
+[2026-07-05T10:40:23] [INFO]: Stored: 2 records
 [2026-07-05T10:45:00] [INFO]: Disposed
 ```
 

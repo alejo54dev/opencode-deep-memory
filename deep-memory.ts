@@ -45,7 +45,7 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const CONFIG =
+const CONFIG : Config =
 {
 	enabled: true,             // master switch
 	max_results: 20,           // max FTS results returned per search call
@@ -53,7 +53,7 @@ const CONFIG =
 	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
 	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
 	data_keep_days: 1000,      // 0 = forever, prune records older than this on startup
-	log_level: "info" as "silent" | "error" | "info" | "debug",
+	log_level: "info",
 };
 
 const LOG_LEVEL =
@@ -123,6 +123,17 @@ const SYSTEM_PROMPT = [
 
 // ─── Interfaces ────────────────────────────────────────────────────────────
 
+interface Config
+{
+	enabled           : boolean ;
+	max_results       : number ;
+	search_max_days   : number ;
+	max_tokens_memory : number ;
+	max_snippet_chars : number ;
+	data_keep_days    : number ;
+	log_level         : "silent" | "error" | "info" | "debug" ;
+}
+
 interface MemoryHit
 {
 	id : string ;
@@ -150,7 +161,7 @@ function timestamp() : string
 }
 
 // Load config from ~/.config/opencode/deep-memory.jsonc, fall back to defaults
-function loadConfig() : typeof CONFIG
+function loadConfig() : Config
 {
 	let file: Record<string, unknown> = {} ;
 	try
@@ -195,7 +206,7 @@ function log( level : number, message : string ) : void
 
 class DeepMemory
 {
-	private config : typeof CONFIG ;
+	private config : Config ;
 	private db : Database ;
 	private stmtInsert : ReturnType<Database[ "prepare" ]> ;
 	private stmtSearch : ReturnType<Database[ "prepare" ]> ;
@@ -205,7 +216,7 @@ class DeepMemory
 	private client : PluginInput[ "client" ] ;
 	private sessionID : string | null = null ;
 
-	constructor( config : typeof CONFIG, client : PluginInput[ "client" ] )
+	constructor( config : Config, client : PluginInput[ "client" ] )
 	{
 		this.config = config ;
 		this.client = client ;
