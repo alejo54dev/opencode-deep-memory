@@ -24,7 +24,7 @@
 
 - **Copy and it works** — one TypeScript file (729 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
-- **Safe by design** — normalize, MD5 exact dedup, trigram near-dup gate, controlled startup prune. Ranking only reorders — it never filters a candidate out.
+- **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
 ## 🧠 Philosophy
 
@@ -136,14 +136,9 @@ tail -f ~/.config/opencode/deep-memory.log
 
 ## 💬 Notes
 
-- **Auto-store** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 over the recent 200, minimum 20 chars.
-- **Exact dedup** — `id` (MD5, 32 chars) of `role + ":" + content.toLowerCase()` as `TEXT PRIMARY KEY` with `INSERT OR IGNORE` catches exact duplicates at insert.
-- **Store on demand is not a bypass** — `memory_store` runs the same `storeRecord` (normalize + near-dup gate) as the automatic capture.
-- **Relevance ranking** — FTS5 results ordered by `bm25()` (most relevant first), not insertion order.
-- **Age gate** — `search_max_days` filters records in SQL via `julianday()` comparison. `0` = all records.
-- **Cross-project** — FTS5 search has no session filter. Finds context across all projects and sessions.
+- **Exact dedup** — `id` is the MD5 of `role + ":" + content.toLowerCase()`, a `TEXT PRIMARY KEY` with `INSERT OR IGNORE`.
+- **Near-dup scope** — the trigram gate only looks at the last 200 records, so two near-identical messages far apart in time can both be stored.
 - **System-injected parts** — message parts flagged `synthetic` or `ignored` are skipped during storage.
-- **Startup prune** — `data_keep_days` deletes old records on init. `0` = forever.
 
 Less is more. :)
 
