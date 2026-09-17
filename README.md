@@ -40,19 +40,25 @@ One store; messages go in, searches come out.
 
 ```mermaid
 flowchart TD
-    MSG["💬 every message"] -->|"auto-capture"| STORE["🗄️ store<br/>SQLite + FTS5"]
-    SAY["🧑 «remember this»"] -->|"memory_store"| STORE
-    STORE -->|"memory_search"| FTS["🔍 FTS5 + age gate"]
-    FTS --> RANK["⚖️ bm25 rank"]
-    RANK --> CUT["✂️ cut to max_results"]
-    CUT --> OUT["📎 token budget<br/>→ past context"]
+    AGENT["🤖 agent"] --> D{"which tool?"}
 
+    MSG["💬 every message"] -->|"auto-capture"| STORE["🗄️ store<br/>SQLite + FTS5"]
+
+    D -->|"memory_search"| READ["🔍 FTS5 + age gate → bm25<br/>→ max_results cut → budget"]
+    D -->|"memory_store"| WRITE["💾 memory_store"]
+    D -->|"memory_stats"| STATS["📊 memory_stats"]
+
+    WRITE --> STORE
+    STORE -. "reads" .-> READ
+    READ --> OUT["📎 past context"]
+
+    style AGENT fill:#1a1a2e,stroke:#e94560,color:#fff
+    style D fill:#16213e,stroke:#e94560,color:#fff
     style MSG fill:#0f3460,stroke:#53a8b6,color:#fff
-    style SAY fill:#1a1a2e,stroke:#e94560,color:#fff
     style STORE fill:#16213e,stroke:#e94560,color:#fff
-    style FTS fill:#0f3460,stroke:#53a8b6,color:#fff
-    style RANK fill:#0f3460,stroke:#53a8b6,color:#fff
-    style CUT fill:#0f3460,stroke:#53a8b6,color:#fff
+    style READ fill:#0f3460,stroke:#53a8b6,color:#fff
+    style WRITE fill:#0f3460,stroke:#53a8b6,color:#fff
+    style STATS fill:#0f3460,stroke:#53a8b6,color:#fff
     style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
