@@ -1,65 +1,72 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.28-blue)
+![Version](https://img.shields.io/badge/version-1.1.29-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
 > Your AI has amnesia. Every session starts from scratch? You repeat configs, decisions, errors you already fixed? Not anymore!
+
 ## 💡 What it does
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 729 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Global memory** — every message of every session, across every project. Nothing is scoped away. `search_max_days` bounds what search looks at, `data_keep_days` prunes the store at startup.
 
-- **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65. You do nothing.
+- **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 over the recent 200 (min 20 chars). You do nothing.
 
-- **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, typo-tolerant.
+- **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, keyword + prefix matching.
 
-- **Smart pipeline** — FTS5 → age gate → `bm25()` relevance ranking → dedup → token budget. Storage-time in-memory trigram dedup skips near-duplicates.
+- **Plain pipeline** — FTS5 → age gate → `bm25()` ranking → the `max_results` cut → the token budget. No embeddings, no LLM calls in retrieval.
 
-- **Store on demand** — `memory_store()` lets you persist a specific fact or decision when you need it to stick. Same dedup, same pipeline — just triggered by you instead of automatically.
+- **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
 - **Stats on demand** — `memory_stats()` returns record count, content size, DB file size, records per role, and oldest/newest record previews.
+
+- **Copy and it works** — one TypeScript file (729 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+
+- **Safe by design** — normalize, MD5 exact dedup, trigram near-dup gate, controlled startup prune. Ranking only reorders — it never filters a candidate out.
 
 ## 🧠 Philosophy
 
 Memory is a growing stack, not a cache that gets cleaned. Everything saved.
 
-The model decides when to ask. A single line in the system prompt reminds it about `memory_search()`. No forced injection, no tokens wasted on noise.
+The model decides when to ask. A short `<memory>` reminder in the system prompt points at `memory_search()` and `memory_store()`. No forced injection, no tokens wasted on noise.
 
-When it asks, the pipeline searches the entire DB — across projects, across sessions, across months — and returns only what matters.
+When it asks, the search runs over the whole database — across projects, across sessions, across months — and returns only what matters.
 
 ## 🔄 How it works
 
+One store; messages go in, searches come out.
+
 ```mermaid
 flowchart TD
-    A["📝 Messages flow<br/>through hook"]
-    A --> B["💾 Auto-store in SQLite<br/>Trigram dedup + strip tags"]
-    B --> C["📎 System prompt gets<br/>tool reminder"]
+    MSG["💬 every message"] -->|"auto-capture"| STORE["🗄️ store<br/>SQLite + FTS5"]
+    SAY["🧑 «remember this»"] -->|"memory_store"| STORE
+    STORE -->|"memory_search"| FTS["🔍 FTS5 + age gate"]
+    FTS --> RANK["⚖️ bm25 rank"]
+    RANK --> CUT["✂️ cut to max_results"]
+    CUT --> OUT["📎 token budget<br/>→ past context"]
 
-    C --> D{"Model calls<br/>a tool?"}
-    D -->|"🔍 memory_search"| E["FTS5 cross-project<br/>(no session filter)"]
-    E --> F["Relevance ranking (bm25)<br/>→ Age Gate → Dedup<br/>→ Token Budget"]
-    F --> G["📎 &lt;deep-memory&gt;<br/>returned to model"]
-    D -->|"💾 memory_store"| H["Store specific fact<br/>(bypasses trigram dedup)"]
-    D -->|"📊 memory_stats"| I["Return storage stats<br/>(count, size, roles)"]
-    D -.->|"❌ No"| J["💬 Normal response"]
-    G -.-> J
-    H -.-> J
-    I -.-> J
-    J -.-> A
-
-    style A fill:#1a1a2e,stroke:#e94560,color:#fff
-    style B fill:#0f3460,stroke:#53a8b6,color:#fff
-    style C fill:#0f3460,stroke:#53a8b6,color:#fff
-    style D fill:#16213e,stroke:#e94560,color:#fff
-    style E fill:#0f3460,stroke:#53a8b6,color:#fff
-    style F fill:#0f3460,stroke:#53a8b6,color:#fff
-    style G fill:#1a1a2e,stroke:#e94560,color:#fff
-    style H fill:#0f3460,stroke:#53a8b6,color:#fff
-    style I fill:#0f3460,stroke:#53a8b6,color:#fff
-    style J fill:#1a1a2e,stroke:#e94560,color:#fff
+    style MSG fill:#0f3460,stroke:#53a8b6,color:#fff
+    style SAY fill:#1a1a2e,stroke:#e94560,color:#fff
+    style STORE fill:#16213e,stroke:#e94560,color:#fff
+    style FTS fill:#0f3460,stroke:#53a8b6,color:#fff
+    style RANK fill:#0f3460,stroke:#53a8b6,color:#fff
+    style CUT fill:#0f3460,stroke:#53a8b6,color:#fff
+    style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
+
+Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store (age-gated) → `bm25()` ranking → the `max_results` cut → the token/snippet budget.
+
+## 🧰 Tools
+
+| Tool | What it does | Answer wrapped in |
+|---|---|---|
+| `memory_search(query, max_results?)` | Recall: FTS5 + bm25, compressed to a token budget | `<memory-result>` |
+| `memory_store(role, content)` | Save one fact or decision | `<memory-store>` |
+| `memory_stats()` | Counts, size, roles, oldest / newest record | `<memory-stats>` |
+
+A short `<memory>` reminder is also injected into the system prompt.
 
 ## 🎯 Use cases
 
@@ -77,7 +84,7 @@ flowchart TD
 cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 ```
 
-No npm, no build step, no dependencies. OpenCode runs TypeScript natively.
+No npm, no build step, no dependencies. OpenCode runs TypeScript natively. Restart opencode; capture runs on its own and the tools become available.
 
 ## ⚙️ Configuration
 
@@ -114,18 +121,18 @@ tail -f ~/.config/opencode/deep-memory.log
 ```
 
 ```log
-[2026-07-05T10:30:00] [INFO]: Config loaded
-[2026-07-05T10:30:01] [INFO]: Initialized
-[2026-07-05T10:35:12] [INFO]: Stored: 1 records
-[2026-07-05T10:40:23] [INFO]: Stored: 2 records
-[2026-07-05T10:45:00] [INFO]: Disposed
+[2026-09-17T01:20:00] [INFO]: Config loaded
+[2026-09-17T01:20:00] [INFO]: Initialized
+[2026-09-17T01:31:12] [INFO]: Stored: 2 records
+[2026-09-17T01:35:40] [DEBUG]: Dedup: skipped similar record (role=assistant)
+[2026-09-17T01:40:00] [INFO]: Disposed
 ```
 
 ## 💬 Notes
 
-- **Auto-store** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 (min 20 chars).
+- **Auto-store** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 over the recent 200, minimum 20 chars.
 - **Exact dedup** — `id` (MD5, 32 chars) of `role + ":" + content.toLowerCase()` as `TEXT PRIMARY KEY` with `INSERT OR IGNORE` catches exact duplicates at insert.
-- **`memory_store` bypass** — on-demand storage skips trigram dedup (intentional persistence). Same `id` dedup still applies.
+- **Store on demand is not a bypass** — `memory_store` runs the same `storeRecord` (normalize + near-dup gate) as the automatic capture.
 - **Relevance ranking** — FTS5 results ordered by `bm25()` (most relevant first), not insertion order.
 - **Age gate** — `search_max_days` filters records in SQL via `julianday()` comparison. `0` = all records.
 - **Cross-project** — FTS5 search has no session filter. Finds context across all projects and sessions.
@@ -137,8 +144,8 @@ Less is more. :)
 ## 👤 Authors
 
 - Alejandro Carraretto
-- DeepSeek-V4 — assistant model during development
+- DeepSeek-Flash — assistant model during development
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.28
+AGPL-3.0 — version 1.1.29

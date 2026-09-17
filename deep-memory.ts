@@ -1,8 +1,8 @@
 /**
 *	deep-memory.ts
 *
-*	OpenCode plugin — persistent long-term memory via SQLite FTS5.
-*	Stores conversation records, recalls relevant context on each record.
+*	OpenCode plugin — global memory via SQLite FTS5.
+*	Stores conversation records, recalls relevant context on demand.
 *
 *	Install: cp deep-memory.ts ~/.config/opencode/plugins/deep-memory.ts
 *	Storage: ~/.config/opencode/storage/deep-memory.db
@@ -21,9 +21,9 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.28
+*	@version 1.1.29
 *	@author Alejandro Carraretto
-*	@assistant DeepSeek-V4
+*	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
 *	@compatibility OpenCode v1
 */
@@ -546,16 +546,16 @@ class DeepMemory
 		if ( result === "stored" )
 		{
 			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${ args.role })` ) ;
-			return "<deep-memory>\n(stored)\n</deep-memory>" ;
+			return "<memory-store>\n(stored)\n</memory-store>" ;
 		}
 
 		if ( result === "duplicate" )
-			return "<deep-memory>\n(already exists)\n</deep-memory>" ;
+			return "<memory-store>\n(already exists)\n</memory-store>" ;
 
 		if ( result === "similar" )
-			return "<deep-memory>\n(skipped: similar record exists)\n</deep-memory>" ;
+			return "<memory-store>\n(skipped: similar record exists)\n</memory-store>" ;
 
-		return "<deep-memory>\n(error: invalid role or empty content)\n</deep-memory>" ;
+		return "<memory-store>\n(error: invalid role or empty content)\n</memory-store>" ;
 	}
 
 	// Search memory, compress results into token-budgeted block
@@ -571,9 +571,9 @@ class DeepMemory
 			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
 		if ( ! contextStr )
-			return "<deep-memory>\n(no match fits the token budget)\n</deep-memory>" ;
+			return "<memory-result>\n(no match fits the token budget)\n</memory-result>" ;
 
-		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
+		return `<memory-result>\n${contextStr}\n</memory-result>` ;
 	}
 
 	// Return storage statistics as formatted string
@@ -623,7 +623,7 @@ class DeepMemory
 		else
 			lines.push( "newest: (none)" ) ;
 
-		return `<deep-memory-stats>\n${lines.join( "\n" )}\n</deep-memory-stats>` ;
+		return `<memory-stats>\n${lines.join( "\n" )}\n</memory-stats>` ;
 	}
 
 	// Backfill last message on dispose, close DB
@@ -690,7 +690,7 @@ export default ( async ( ctx : PluginInput ) =>
 					query : tool.schema.string().describe( SEARCH_QUERY_DESC ),
 					max_results : tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
 				},
-				execute : guard( "memory_search", "deep-memory", args => dm.recall( args ) ),
+				execute : guard( "memory_search", "memory-result", args => dm.recall( args ) ),
 			} ),
 
 			memory_store : tool( {
@@ -699,13 +699,13 @@ export default ( async ( ctx : PluginInput ) =>
 					role : tool.schema.string().describe( STORE_ROLE_DESC ),
 					content : tool.schema.string().describe( STORE_CONTENT_DESC ),
 				},
-				execute : guard( "memory_store", "deep-memory", args => dm.store( args ) ),
+				execute : guard( "memory_store", "memory-store", args => dm.store( args ) ),
 			} ),
 
 			memory_stats : tool( {
 				description : STATS_DESC,
 				args : {},
-				execute : guard( "memory_stats", "deep-memory-stats", () => dm.stats() ),
+				execute : guard( "memory_stats", "memory-stats", () => dm.stats() ),
 			} ),
 		},
 
