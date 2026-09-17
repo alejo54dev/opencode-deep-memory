@@ -14,14 +14,14 @@
 *		"enabled": true,            // master switch
 *		"max_results": 20,          // max FTS results returned per search call
 *		"search_max_days": 600,     // 0 = all, max days of records to consider
-*		"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
-*		"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
-*		"data_keep_days": 1000,     // 0 = forever, prune records older than this on startup
+*		"max_tokens_memory": 800,   // max tokens consumed by memory recall block
+*		"max_snippet_chars": 600,   // max chars per memory snippet in recall output
+*		"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 *		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.26
+*	@version 1.1.27
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-V4
 *	@license AGPL-3.0
@@ -50,9 +50,9 @@ const CONFIG : Config =
 	enabled: true,             // master switch
 	max_results: 20,           // max FTS results returned per search call
 	search_max_days: 600,      // 0 = all, max days of records to consider
-	max_tokens_memory: 2000,   // max tokens consumed by memory recall block
-	max_snippet_chars: 3000,   // max chars per memory snippet in recall output
-	data_keep_days: 1000,      // 0 = forever, prune records older than this on startup
+	max_tokens_memory: 800,    // max tokens consumed by memory recall block
+	max_snippet_chars: 600,    // max chars per memory snippet in recall output
+	data_keep_days: 600,       // 0 = forever, prune records older than this on startup
 	log_level: "info",
 };
 
@@ -170,9 +170,11 @@ function timestamp() : string
 function loadConfig() : Config
 {
 	let file : Partial<Config> = {} ;
+	let loaded = false ;
 	try
 	{
 		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) as Partial<Config> ;
+		loaded = true ;
 	}
 	catch
 	{
@@ -187,7 +189,7 @@ function loadConfig() : Config
 	CONFIG.max_snippet_chars = Math.max( 50, CONFIG.max_snippet_chars ) ;
 	CONFIG.data_keep_days    = Math.max( 0, CONFIG.data_keep_days ) ;
 
-	log( LOG_LEVEL.INFO, "Config loaded" ) ;
+	log( LOG_LEVEL.INFO, loaded ? "Config loaded" : "Config loaded (defaults)" ) ;
 
 	return CONFIG ;
 }
@@ -381,8 +383,9 @@ class DeepMemory
 		{
 			return this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
 		}
-		catch
+		catch ( err )
 		{
+			log( LOG_LEVEL.ERROR, `searchMemories: ${( err as Error ).message }` ) ;
 			return [] ;
 		}
 	}
@@ -570,7 +573,7 @@ class DeepMemory
 			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
 
 		if ( ! contextStr )
-			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
+			return "<deep-memory>\n(no match fits the token budget)\n</deep-memory>" ;
 
 		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
 	}
@@ -581,11 +584,11 @@ class DeepMemory
 		const row = this.db.prepare(
 			`SELECT
 				COUNT(*) AS total,
-				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
+				COALESCE( SUM( LENGTH( content ) ), 0 ) AS chars,
 				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
 				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count
 			 FROM records`
-		).get() as { total : number; size_bytes : number; user_count : number; assistant_count : number } | null ;
+		).get() as { total : number; chars : number; user_count : number; assistant_count : number } | null ;
 
 		const oldest = this.db.prepare(
 			"SELECT role, content, created FROM records ORDER BY created ASC LIMIT 1"
@@ -607,7 +610,7 @@ class DeepMemory
 
 		const lines : string[] = [] ;
 		lines.push( `records: ${row?.total ?? 0}` ) ;
-		lines.push( `size: ${fmt( row?.size_bytes ?? 0 )}` ) ;
+		lines.push( `chars: ${row?.chars ?? 0}` ) ;
 		lines.push( `db_size: ${fmt( dbSize )}` ) ;
 		lines.push( `by_role: user=${row?.user_count ?? 0}, assistant=${row?.assistant_count ?? 0}` ) ;
 		lines.push( `stored: ${this.stored}, dedup_skipped: ${this.dedupSkipped}` ) ;

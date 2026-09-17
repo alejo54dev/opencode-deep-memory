@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.26-blue)
+![Version](https://img.shields.io/badge/version-1.1.27-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
@@ -88,9 +88,9 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 	"enabled": true,            // master switch
 	"max_results": 20,          // max FTS results returned per search call
 	"search_max_days": 600,     // 0 = all, max days of records to consider
-	"max_tokens_memory": 2000,  // max tokens consumed by memory recall block
-	"max_snippet_chars": 3000,  // max chars per memory snippet in recall output
-	"data_keep_days": 1000,     // 0 = forever, prune records older than this on startup
+	"max_tokens_memory": 800,   // max tokens consumed by memory recall block
+	"max_snippet_chars": 600,   // max chars per memory snippet in recall output
+	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
 ```
@@ -100,9 +100,9 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | `enabled` | `true` | Master switch |
 | `max_results` | `20` | Max FTS results per search |
 | `search_max_days` | `600` | 0 = all, max days of records to consider |
-| `max_tokens_memory` | `2000` | Token budget for compressed context |
-| `max_snippet_chars` | `3000` | Max chars per snippet before truncation |
-| `data_keep_days` | `1000` | 0 = forever, prune records older than this on startup |
+| `max_tokens_memory` | `800` | Token budget for compressed context |
+| `max_snippet_chars` | `600` | Max chars per snippet before truncation |
+| `data_keep_days` | `600` | 0 = forever, prune records older than this on startup |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 
 ## 🪵 Logs
@@ -141,4 +141,4 @@ Less is more. :)
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.26
+AGPL-3.0 — version 1.1.27
