@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.29
+*	@version 1.1.30
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -408,8 +408,8 @@ class DeepMemory
 			}
 
 			const line = h.role === "assistant"
-				? `→ ${snippet}`
-				: `  ${snippet}` ;
+				? `${h.created} → ${snippet}`
+				: `${h.created}   ${snippet}` ;
 
 			const est = Math.max( 1, line.split( /\s+/ ).filter( Boolean ).length ) ;
 			if ( est > budget ) break ;
