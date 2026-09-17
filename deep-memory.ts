@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.27
+*	@version 1.1.28
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-V4
 *	@license AGPL-3.0
@@ -81,9 +81,8 @@ const FILTER_PATTERNS =
 ];
 
 const SEARCH_DESC = [
-	"Search long-term memory using full-text search.",
-	"Use this when you need to recall past conversation records,",
-	"decisions, or facts stored across all sessions.",
+	"Search global memory for past records, decisions, or facts across",
+	"all projects and sessions. Use this when you need to recall past work.",
 ].join( " " ) ;
 
 const SEARCH_QUERY_DESC = [
@@ -93,16 +92,16 @@ const SEARCH_QUERY_DESC = [
 
 const SEARCH_MAX_RESULTS_DESC = [
 	"Maximum number of results to return",
-	"(default: max_results config)",
+	"(default: the configured max_results)",
 ].join( " " ) ;
 
 const STATS_DESC = [
-	"Return storage statistics: record count, size, oldest/newest records,",
-	"and store counters.",
+	"Return memory statistics: record count, size, roles,",
+	"oldest/newest records, and store counters.",
 ].join( " " ) ;
 
 const STORE_DESC = [
-	"Store a fact, decision, or piece of information in long-term memory.",
+	"Store a fact, decision, or piece of information in global memory.",
 	"Use this when the user explicitly asks to remember something that should be",
 	"retrievable by memory_search in future sessions.",
 ].join( " " ) ;
@@ -117,14 +116,13 @@ const STORE_CONTENT_DESC = [
 ].join( " " ) ;
 
 const SYSTEM_PROMPT = [
-	"<deep-memory>",
-	"You have access to memory_search() — global memory over past records",
-	"across projects, from any session — and memory_store() to persist an",
-	"explicit fact or decision.",
+	"<memory>",
+	"memory_search() reads global memory across projects and sessions;",
+	"memory_store() persists an explicit fact or decision.",
 	"When you don't know something, search memory before inventing; if memory",
-	"has nothing, then look outside.",
-	"Use memory_store() only when the user explicitly asks to remember something.",
-	"</deep-memory>",
+	"has nothing, look outside.",
+	"Store only when the user explicitly asks.",
+	"</memory>",
 ].join( "\n" ) ;
 
 // ─── Interfaces ────────────────────────────────────────────────────────────

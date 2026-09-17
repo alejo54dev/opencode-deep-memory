@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.27-blue)
+![Version](https://img.shields.io/badge/version-1.1.28-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
@@ -141,4 +141,4 @@ Less is more. :)
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.27
+AGPL-3.0 — version 1.1.28
