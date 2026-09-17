@@ -12,7 +12,7 @@
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"enabled": true,            // master switch
-*		"max_results": 20,          // max FTS results returned per search call
+*		"max_results": 10,          // max FTS results returned per search call
 *		"max_tokens_memory": 800,   // max tokens consumed by memory recall block
 *		"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 *		"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
@@ -20,7 +20,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.32
+*	@version 1.1.33
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -206,6 +206,7 @@ class DeepMemory
 	private config : Config ;
 	private db : Database ;
 	private stmtInsert : ReturnType<Database[ "prepare" ]> ;
+	private stmtExists : ReturnType<Database[ "prepare" ]> ;
 	private stmtSearch : ReturnType<Database[ "prepare" ]> ;
 	private stmtRecent : ReturnType<Database[ "prepare" ]> ;
 	private seen : Set<string> = new Set() ;
@@ -259,6 +260,10 @@ class DeepMemory
 
 		this.stmtInsert = this.db.prepare(
 			"INSERT OR IGNORE INTO records ( id, role, content ) VALUES ( ?, ?, ? )"
+		) ;
+
+		this.stmtExists = this.db.prepare(
+			"SELECT 1 FROM records WHERE id = ?"
 		) ;
 
 		this.stmtSearch = this.db.prepare(
@@ -486,7 +491,7 @@ class DeepMemory
 		}
 	}
 
-	// Store one record: normalize, near-dup gate, exact dedup, insert.
+	// Store one record: normalize, exact dedup, near-dup gate, insert.
 	// Returns the outcome so callers can report it.
 	protected storeRecord( role : string, content : string ) : "stored" | "duplicate" | "similar" | "invalid"
 	{
@@ -495,13 +500,16 @@ class DeepMemory
 		const normalized = this.normalizeContent( content ) ;
 		if ( ! normalized ) return "invalid" ;
 
+		const id = this.hashContent( role, normalized ) ;
+
+		if ( this.stmtExists.get( id ) ) return "duplicate" ;
+
 		if ( normalized.length >= 20 && this.isNearDuplicate( normalized ) )
 		{
 			log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${ role })` ) ;
 			return "similar" ;
 		}
 
-		const id = this.hashContent( role, normalized ) ;
 		const result = this.stmtInsert.run( id, role, normalized ) ;
 
 		if ( ! result.changes ) return "duplicate" ;
