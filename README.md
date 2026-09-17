@@ -20,9 +20,7 @@
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
-- **Stats on demand** — `memory_stats()` returns record count, content size, DB file size, records per role, and oldest/newest record previews.
-
-- **Copy and it works** — one TypeScript file (729 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+- **Copy and it works** — one TypeScript file (664 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
 - **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
@@ -46,7 +44,6 @@ flowchart TD
 
     D -->|"memory_search"| READ["🔍 FTS5 + age gate → bm25<br/>→ max_results cut → budget"]
     D -->|"memory_store"| WRITE["💾 memory_store"]
-    D -->|"memory_stats"| STATS["📊 memory_stats"]
 
     WRITE --> STORE
     STORE -. "reads" .-> READ
@@ -58,7 +55,6 @@ flowchart TD
     style STORE fill:#16213e,stroke:#e94560,color:#fff
     style READ fill:#0f3460,stroke:#53a8b6,color:#fff
     style WRITE fill:#0f3460,stroke:#53a8b6,color:#fff
-    style STATS fill:#0f3460,stroke:#53a8b6,color:#fff
     style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
@@ -70,7 +66,6 @@ Every message is captured automatically. `memory_store` saves one fact when the 
 |---|---|---|
 | `memory_search(query, max_results?)` | Recall: FTS5 + bm25, compressed to a token budget | `<memory-result>` |
 | `memory_store(role, content)` | Save one fact or decision | `<memory-store>` |
-| `memory_stats()` | Counts, size, roles, oldest / newest record | `<memory-stats>` |
 
 A short `<memory>` reminder is also injected into the system prompt.
 

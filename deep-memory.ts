@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.30
+*	@version 1.1.31
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -31,7 +31,7 @@
 import { type Plugin, type PluginInput, tool } from "@opencode-ai/plugin" ;
 import { Database } from "bun:sqlite" ;
 import { createHash } from "node:crypto" ;
-import { mkdirSync, existsSync, appendFileSync, readFileSync, statSync } from "node:fs" ;
+import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs" ;
 import { homedir } from "node:os" ;
 import { join } from "node:path" ;
 
@@ -93,11 +93,6 @@ const SEARCH_QUERY_DESC = [
 const SEARCH_MAX_RESULTS_DESC = [
 	"Maximum number of results to return",
 	"(default: the configured max_results)",
-].join( " " ) ;
-
-const STATS_DESC = [
-	"Return memory statistics: record count, size, roles,",
-	"oldest/newest records, and store counters.",
 ].join( " " ) ;
 
 const STORE_DESC = [
@@ -218,8 +213,6 @@ class DeepMemory
 	private stmtSearch : ReturnType<Database[ "prepare" ]> ;
 	private stmtRecent : ReturnType<Database[ "prepare" ]> ;
 	private seen : Set<string> = new Set() ;
-	private dedupSkipped : number = 0 ;
-	private stored : number = 0 ;
 	private client : PluginInput[ "client" ] ;
 	private sessionID : string | null = null ;
 
@@ -510,7 +503,6 @@ class DeepMemory
 		if ( normalized.length >= 20 && this.isNearDuplicate( normalized ) )
 		{
 			log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${ role })` ) ;
-			this.dedupSkipped ++ ;
 			return "similar" ;
 		}
 
@@ -518,8 +510,6 @@ class DeepMemory
 		const result = this.stmtInsert.run( id, role, normalized ) ;
 
 		if ( ! result.changes ) return "duplicate" ;
-
-		this.stored++ ;
 
 		return "stored" ;
 	}
@@ -574,56 +564,6 @@ class DeepMemory
 			return "<memory-result>\n(no match fits the token budget)\n</memory-result>" ;
 
 		return `<memory-result>\n${contextStr}\n</memory-result>` ;
-	}
-
-	// Return storage statistics as formatted string
-	public stats() : string
-	{
-		const row = this.db.prepare(
-			`SELECT
-				COUNT(*) AS total,
-				COALESCE( SUM( LENGTH( content ) ), 0 ) AS chars,
-				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
-				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count
-			 FROM records`
-		).get() as { total : number; chars : number; user_count : number; assistant_count : number } | null ;
-
-		const oldest = this.db.prepare(
-			"SELECT role, content, created FROM records ORDER BY created ASC LIMIT 1"
-		).get() as { role : string; content : string; created : string } | null ;
-
-		const newest = this.db.prepare(
-			"SELECT role, content, created FROM records ORDER BY created DESC LIMIT 1"
-		).get() as { role : string; content : string; created : string } | null ;
-
-		let dbSize = 0 ;
-		try { dbSize = statSync( DB_PATH ).size ; } catch {}
-
-		const fmt = ( n : number ) : string =>
-		{
-			if ( n < 1024 ) return `${n} B` ;
-			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
-			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
-		} ;
-
-		const lines : string[] = [] ;
-		lines.push( `records: ${row?.total ?? 0}` ) ;
-		lines.push( `chars: ${row?.chars ?? 0}` ) ;
-		lines.push( `db_size: ${fmt( dbSize )}` ) ;
-		lines.push( `by_role: user=${row?.user_count ?? 0}, assistant=${row?.assistant_count ?? 0}` ) ;
-		lines.push( `stored: ${this.stored}, dedup_skipped: ${this.dedupSkipped}` ) ;
-
-		if ( oldest )
-			lines.push( `oldest: ${oldest.created} (${oldest.role}) "${oldest.content.slice( 0, 80 )}"` ) ;
-		else
-			lines.push( "oldest: (none)" ) ;
-
-		if ( newest )
-			lines.push( `newest: ${newest.created} (${newest.role}) "${newest.content.slice( 0, 80 )}"` ) ;
-		else
-			lines.push( "newest: (none)" ) ;
-
-		return `<memory-stats>\n${lines.join( "\n" )}\n</memory-stats>` ;
 	}
 
 	// Backfill last message on dispose, close DB
@@ -702,11 +642,6 @@ export default ( async ( ctx : PluginInput ) =>
 				execute : guard( "memory_store", "memory-store", args => dm.store( args ) ),
 			} ),
 
-			memory_stats : tool( {
-				description : STATS_DESC,
-				args : {},
-				execute : guard( "memory_stats", "memory-stats", () => dm.stats() ),
-			} ),
 		},
 
 		"experimental.chat.messages.transform" : async ( _input, output ) =>
