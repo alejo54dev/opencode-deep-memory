@@ -21,7 +21,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.24
+*	@version 1.1.26
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-V4
 *	@license AGPL-3.0
@@ -31,7 +31,7 @@
 import { type Plugin, type PluginInput, tool } from "@opencode-ai/plugin" ;
 import { Database } from "bun:sqlite" ;
 import { createHash } from "node:crypto" ;
-import { mkdirSync, existsSync, appendFileSync, readFileSync } from "node:fs" ;
+import { mkdirSync, existsSync, appendFileSync, readFileSync, statSync } from "node:fs" ;
 import { homedir } from "node:os" ;
 import { join } from "node:path" ;
 
@@ -64,6 +64,10 @@ const LOG_LEVEL =
 	DEBUG  : 3,
 } as const ;
 
+// Storage tuning — measured constants, not knobs
+const DEDUP_THRESHOLD = 0.65 ;   // trigram Jaccard above which a record is a near-duplicate
+const RECENT_WINDOW   = 200 ;    // records compared on every store for near-dup detection
+
 // Optional/additional chat content filter. (empty by default)
 const FILTER_PATTERNS =
 [
@@ -94,12 +98,12 @@ const SEARCH_MAX_RESULTS_DESC = [
 
 const STATS_DESC = [
 	"Return storage statistics: record count, size, oldest/newest records,",
-	"and dedup skip count.",
+	"and store counters.",
 ].join( " " ) ;
 
 const STORE_DESC = [
 	"Store a fact, decision, or piece of information in long-term memory.",
-	"Use this when you want to persist something specific that should be",
+	"Use this when the user explicitly asks to remember something that should be",
 	"retrievable by memory_search in future sessions.",
 ].join( " " ) ;
 
@@ -114,10 +118,12 @@ const STORE_CONTENT_DESC = [
 
 const SYSTEM_PROMPT = [
 	"<deep-memory>",
-	"You have access to memory_search().",
-	"Call it at session start to recall past context.",
-	"Call it when the user references previous work or asks about history.",
-	"Answer from memory when results match.",
+	"You have access to memory_search() — global memory over past records",
+	"across projects, from any session — and memory_store() to persist an",
+	"explicit fact or decision.",
+	"When you don't know something, search memory before inventing; if memory",
+	"has nothing, then look outside.",
+	"Use memory_store() only when the user explicitly asks to remember something.",
 	"</deep-memory>",
 ].join( "\n" ) ;
 
@@ -144,7 +150,7 @@ interface MemoryHit
 
 interface MessageLike
 {
-	info : { role: "user" | "assistant"; id? : string; sessionID? : string } ;
+	info : { role: "user" | "assistant"; id? : string; sessionID? : string; summary? : boolean } ;
 	parts : Array<{ type : string; text? : string; synthetic? : boolean; ignored? : boolean }> ;
 }
 
@@ -163,23 +169,23 @@ function timestamp() : string
 // Load config from ~/.config/opencode/deep-memory.jsonc, fall back to defaults
 function loadConfig() : Config
 {
-	let file: Record<string, unknown> = {} ;
+	let file : Partial<Config> = {} ;
 	try
 	{
-		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) ;
+		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) as Partial<Config> ;
 	}
 	catch
 	{
 		log( LOG_LEVEL.ERROR, `Config not found or parse error at ${ CONFIG_FILE }` ) ;
 	}
 
-	CONFIG.enabled            = file.enabled                           ?? CONFIG.enabled ;
-	CONFIG.max_results        = Math.max( 1,   file.max_results        ?? CONFIG.max_results ) ;
-	CONFIG.search_max_days    = Math.max( 0,   file.search_max_days    ?? CONFIG.search_max_days ) ;
-	CONFIG.max_tokens_memory  = Math.max( 100, file.max_tokens_memory  ?? CONFIG.max_tokens_memory ) ;
-	CONFIG.max_snippet_chars  = Math.max( 50,  file.max_snippet_chars  ?? CONFIG.max_snippet_chars ) ;
-	CONFIG.data_keep_days     = Math.max( 0,   file.data_keep_days     ?? CONFIG.data_keep_days ) ;
-	CONFIG.log_level          = file.log_level                         ?? CONFIG.log_level ;
+	Object.assign( CONFIG, file ) ;
+
+	CONFIG.max_results       = Math.max( 1, CONFIG.max_results ) ;
+	CONFIG.search_max_days   = Math.max( 0, CONFIG.search_max_days ) ;
+	CONFIG.max_tokens_memory = Math.max( 100, CONFIG.max_tokens_memory ) ;
+	CONFIG.max_snippet_chars = Math.max( 50, CONFIG.max_snippet_chars ) ;
+	CONFIG.data_keep_days    = Math.max( 0, CONFIG.data_keep_days ) ;
 
 	log( LOG_LEVEL.INFO, "Config loaded" ) ;
 
@@ -213,6 +219,7 @@ class DeepMemory
 	private stmtRecent : ReturnType<Database[ "prepare" ]> ;
 	private seen : Set<string> = new Set() ;
 	private dedupSkipped : number = 0 ;
+	private stored : number = 0 ;
 	private client : PluginInput[ "client" ] ;
 	private sessionID : string | null = null ;
 
@@ -227,29 +234,20 @@ class DeepMemory
 		this.db = new Database( DB_PATH ) ;
 
 		this.db.exec(
-			`PRAGMA synchronous          = NORMAL ;
-			 PRAGMA temp_store           = MEMORY ;
-			 PRAGMA page_size            = 8192 ;
-			 PRAGMA cache_size           = 25000 ;
-			 PRAGMA cache_spill          = ON ;
-			 PRAGMA journal_mode         = WAL ;
-			 PRAGMA journal_size_limit   = 0 ;
-			 PRAGMA wal_autocheckpoint   = 1000 ;
-			 PRAGMA automatic_index      = ON ;
-			 PRAGMA recursive_triggers   = ON ;
-			 PRAGMA foreign_keys         = ON ;
-			 PRAGMA defer_foreign_keys   = OFF ;
-			 PRAGMA auto_vacuum          = OFF ;
-			 PRAGMA threads              = 4 ;
-			 PRAGMA busy_timeout         = 5000 ;`
+			`PRAGMA synchronous  = NORMAL ;
+			 PRAGMA temp_store   = MEMORY ;
+			 PRAGMA page_size    = 8192 ;
+			 PRAGMA cache_size   = 25000 ;
+			 PRAGMA journal_mode = WAL ;
+			 PRAGMA busy_timeout = 5000 ;`
 		);
 
 		this.db.exec(
 			`CREATE TABLE IF NOT EXISTS records (
-				id       TEXT   PRIMARY KEY,
-				role     TEXT   NOT NULL CHECK( role IN ( 'user','assistant' ) ),
-				content  TEXT   NOT NULL,
-				created  TEXT   DEFAULT ( datetime( 'now' ) )
+				id       TEXT PRIMARY KEY,
+				role     TEXT NOT NULL CHECK( role IN ( 'user','assistant' ) ),
+				content  TEXT NOT NULL,
+				created  TEXT DEFAULT ( datetime( 'now' ) )
 			 );
 			 CREATE INDEX IF NOT EXISTS idx_records_created
 				ON records( created )
@@ -266,11 +264,6 @@ class DeepMemory
 			 ;
 			 CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
 				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
-			 END
-			 ;
-			 CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
-				INSERT INTO records_fts( records_fts, rowid ) VALUES( 'delete', OLD.rowid );
-				INSERT INTO records_fts( rowid, role, content ) VALUES ( NEW.rowid, NEW.role, NEW.content );
 			 END
 			 ;`
 		);
@@ -293,25 +286,13 @@ class DeepMemory
 		);
 
 		const pruned = this.prune( this.config.data_keep_days ) ;
-		if ( pruned > 0 ) log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
+		if ( pruned > 0 )
+			log( LOG_LEVEL.INFO, `Pruned: ${pruned} records` ) ;
 	}
 
 	// ── Internal helpers ───────────────────────────────────────────────
 
-	// Delete records older than keepDays; relies on triggers to sync FTS5 index. 0 = noop
-	protected prune( keepDays : number ) : number
-	{
-		if ( keepDays <= 0 ) return 0 ;
-
-		const result = this.db.run(
-			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
-			[ keepDays ]
-		) ;
-
-		return result.changes ?? 0 ;
-	}
-
-	// MD5 hex of role + content — record ID and dedup key (lowercased hash for case-insensitive dedup)
+	// MD5 hex of role + normalized content — record ID and exact-dedup key
 	protected hashContent( role : string, content : string ) : string
 	{
 		return createHash( "md5" ).update( role + ":" + content.toLowerCase() ).digest( "hex" ) ;
@@ -328,110 +309,66 @@ class DeepMemory
 		return text.replace( /\s+/g, " " ).trim() ;
 	}
 
-	// Convert free-form text into a safe FTS5 OR-query (splits on non-alphanumeric into word tokens, keeps >1-char terms)
-	protected sanitizeQuery( input : string ) : string
+	// Extract plain text from a message, stripping runtime parts: non-text,
+	// synthetic, ignored parts and compaction checkpoints (summary messages)
+	protected extractText( message : MessageLike ) : string
 	{
-		if ( ! input || typeof input !== "string" ) return "" ;
+		const checkpoint = message.info.summary === true ;
+		const parts : string[] = [] ;
 
-		const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}]+/gu, " " ) ;
-		const raw     = cleaned.split( /\s+/ ) ;
-
-		const terms : string[] = [] ;
-
-		for ( const t of raw )
-			if ( t.length > 1 ) terms.push( t ) ;
-
-		if ( ! terms.length ) return "" ;
-
-		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
-	}
-
-	// Only valid role
-	protected isValidRole( role : string ) : boolean
-	{
-		return [ "user", "assistant" ].includes( role ) ;
-	}
-
-	// Generic Jaccard similarity over two sets
-	// Returns 0 for sets with fewer than 3 elements to avoid spurious matches
-	protected jaccard<T>( setA : Set<T>, setB : Set<T> ) : number
-	{
-		if ( setA.size < 3 || setB.size < 3 ) return 0 ;
-
-		const [ smaller, larger ] = setA.size <= setB.size
-			? [ setA, setB ] : [ setB, setA ] ;
-
-		let inter = 0 ;
-		for ( const x of smaller )
-			if ( larger.has( x ) ) inter++ ;
-
-		const union = setA.size + setB.size - inter ;
-
-		return union === 0 ? 0 : inter / union ;
-	}
-
-	// Jaccard similarity over word tokens — used for dedup in compressMemories
-	protected contentOverlap( a : string, b : string ) : number
-	{
-		const setA = new Set( a.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
-		const setB = new Set( b.toLowerCase().split( /[\s-]+/ ).filter( w => w.length > 2 ) ) ;
-
-		return this.jaccard( setA, setB ) ;
-	}
-
-	// Extract character 3-gram shingles from normalized text
-	protected extractTrigrams( text : string ) : string[]
-	{
-		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim() ;
-		if ( normalized.length < 3 ) return [] ;
-
-		const trigrams = new Set<string>() ;
-
-		for ( let i = 0; i <= normalized.length - 3; i++ )
-			trigrams.add( normalized.slice( i, i + 3 ) ) ;
-
-		return [ ...trigrams ] ;
-	}
-
-	// Jaccard similarity over trigram sets — used for storage-time dedup
-	protected trigramJaccard( a : string[], b : string[] ) : number
-	{
-		return this.jaccard( new Set( a ), new Set( b ) ) ;
-	}
-
-	// In-memory trigram dedup: fetch recent records and compute Jaccard.
-	// Threshold 0.65, min 20 chars. Fails open (returns false) on error.
-	protected isSimilar( content : string ) : boolean
-	{
-		if ( content.length < 20 ) return false ;
-
-		const trigrams = this.extractTrigrams( content ) ;
-		if ( trigrams.length < 3 ) return false ;
-
-		try
+		for ( const part of message.parts )
 		{
-			const recent = this.fetchRecent( 200 ) ;
-			for ( const r of recent )
-			{
-				const existingTrigrams = this.extractTrigrams( r ) ;
-
-				if ( this.trigramJaccard( trigrams, existingTrigrams ) > 0.65 )
-					return true ;
-			}
+			if ( checkpoint || part.type != "text" || part.synthetic == true || part.ignored == true ) continue ;
+			if ( part.text ) parts.push( part.text ) ;
 		}
-		catch
+
+		return parts.join( "\n" ).trim() ;
+	}
+
+	// Character 3-gram shingles of normalized text (first 800 chars)
+	protected trigrams( text : string ) : Set<string>
+	{
+		const normalized = text.toLowerCase().replace( /\s+/g, " " ).trim().slice( 0, 800 ) ;
+		const grams = new Set<string>() ;
+
+		for ( let i = 0 ; i <= normalized.length - 3 ; i++ )
+			grams.add( normalized.slice( i, i + 3 ) ) ;
+
+		return grams ;
+	}
+
+	// Trigram-Jaccard against the recent window; true when a near-dup exists
+	protected isNearDuplicate( normalized : string ) : boolean
+	{
+		const fresh = this.trigrams( normalized ) ;
+		if ( fresh.size < 3 ) return false ;
+
+		for ( const recent of this.stmtRecent.all( RECENT_WINDOW ) as Array<{ content : string }> )
 		{
-			return false ;
+			const other = this.trigrams( recent.content ) ;
+			if ( other.size < 3 ) continue ;
+
+			let inter = 0 ;
+			for ( const gram of fresh )
+				if ( other.has( gram ) ) inter ++ ;
+
+			if ( inter / ( fresh.size + other.size - inter ) > DEDUP_THRESHOLD ) return true ;
 		}
 
 		return false ;
 	}
 
-	// Fetch recent records for in-memory dedup comparison
-	protected fetchRecent( limit : number = 200 ) : string[]
+	// Convert free-form text into a safe FTS5 OR-query
+	protected sanitizeQuery( input : string ) : string
 	{
-		const rows = this.stmtRecent.all( limit ) as Array<{ content : string }> ;
-		return rows.map( r => r.content ) ;
+		if ( ! input || typeof input !== "string" ) return "" ;
+
+		const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}]+/gu, " " ) ;
+		const terms = cleaned.split( /\s+/ ).filter( t => t.length > 1 ) ;
+
+		if ( ! terms.length ) return "" ;
+
+		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 	}
 
 	// FTS5 search with age gate, ordered by bm25 relevance
@@ -450,32 +387,15 @@ class DeepMemory
 		}
 	}
 
-	// Compress FTS hits into a token-budgeted context block with single-pass dedup
+	// Compress ranked hits into a token-budgeted context block
 	protected compressMemories( hits : MemoryHit[], maxTokens : number, maxSnippetChars : number ) : string
 	{
 		if ( ! hits.length ) return "" ;
 
-		const pick : MemoryHit[] = [] ;
-
-		for ( const h of hits )
-		{
-			let dup = false ;
-
-			for ( const p of pick )
-			{
-				if ( this.contentOverlap( p.content, h.content ) > 0.6 )
-				{
-					dup = true ;
-					break ;
-				}
-			}
-			if ( ! dup ) pick.push( h ) ;
-		}
-
 		const parts : string[] = [] ;
 		let budget = maxTokens ;
 
-		for ( const h of pick )
+		for ( const h of hits )
 		{
 			let snippet = h.content.trim() ;
 			if ( snippet.length > maxSnippetChars )
@@ -500,218 +420,17 @@ class DeepMemory
 		return parts.join( "\n" ) ;
 	}
 
-	// True if part is non-text/synthetic/ignored (runtime-injected)
-	protected isRuntime( p : { type : string; synthetic? : boolean; ignored? : boolean } ) : boolean
+	// Delete records older than keepDays; returns deleted count. 0 = noop
+	protected prune( keepDays : number ) : number
 	{
-		const is = ( p.type != "text" || p.synthetic == true || p.ignored == true ) ;
+		if ( keepDays <= 0 ) return 0 ;
 
-		if ( is )
-			log( LOG_LEVEL.DEBUG, `Runtime part: type=${p.type} synthetic=${p.synthetic} ignored=${p.ignored}` ) ;
+		const result = this.db.run(
+			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
+			[ keepDays ]
+		);
 
-		return is ;
-	}
-
-	// Extract plain text from a message, stripping runtime parts and noise tags
-	protected extractText( message : MessageLike ) : string
-	{
-		const parts : string[] = [] ;
-
-		for ( const part of message.parts )
-		{
-			if ( this.isRuntime( part ) ) continue ;
-			if ( part.text ) parts.push( part.text ) ;
-		}
-
-		return parts.join( "\n" ).trim() ;
-	}
-
-	// ── Public hooks ──────────────────────────────────────────────────
-
-	// Search memory, compress results into token-budgeted block
-	public recall( args : { query : string; max_results? : number } ) : string
-	{
-		const limit = args.max_results ?? this.config.max_results ;
-		const hits  = this.searchMemories(
-			args.query, limit, this.config.search_max_days
-		) ;
-
-		const contextStr = ! hits.length
-			? ""
-			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
-
-		if ( ! contextStr )
-			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
-
-		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
-	}
-
-	// Return storage statistics as formatted string
-	public stats() : string
-	{
-		const row = this.db.prepare(
-			`SELECT
-				COUNT(*) AS total,
-				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
-				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
-				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count,
-				MIN( created ) AS oldest,
-				MAX( created ) AS newest
-			 FROM records`
-		).get() as {
-			total : number ;
-			size_bytes : number ;
-			user_count : number ;
-			assistant_count : number ;
-			oldest : string | null ;
-			newest : string | null ;
-		} | null ;
-
-		const pc = this.db.prepare( "PRAGMA page_count" ).get() as { page_count : number } | null ;
-		const ps = this.db.prepare( "PRAGMA page_size" ).get() as { page_size : number } | null ;
-		const dbSize = ( pc?.page_count ?? 0 ) * ( ps?.page_size ?? 0 ) ;
-
-		let oldestPreview : string | null = null ;
-		let newestPreview : string | null = null ;
-		let oldestRole : string | null = null ;
-		let newestRole : string | null = null ;
-
-		if ( row && row.oldest )
-		{
-			const o = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created ASC LIMIT 1"
-			).get() as { role : string; content : string } | null ;
-
-			if ( o )
-			{
-				oldestRole = o.role ;
-				oldestPreview = o.content.slice( 0, 80 ) ;
-			}
-		}
-
-		if ( row && row.newest )
-		{
-			const n = this.db.prepare(
-				"SELECT role, content FROM records ORDER BY created DESC LIMIT 1"
-			).get() as { role : string; content : string } | null ;
-
-			if ( n )
-			{
-				newestRole = n.role ;
-				newestPreview = n.content.slice( 0, 80 ) ;
-			}
-		}
-
-		const fmt = ( n : number ) : string =>
-		{
-			if ( n < 1024 ) return `${n} B` ;
-			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
-			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
-		} ;
-
-		const lines : string[] = [] ;
-		lines.push( `records: ${row?.total ?? 0}` ) ;
-		lines.push( `size: ${fmt( row?.size_bytes ?? 0 )}` ) ;
-		lines.push( `db_size: ${fmt( dbSize )}` ) ;
-		lines.push( `by_role: user=${row?.user_count ?? 0}, assistant=${row?.assistant_count ?? 0}` ) ;
-		lines.push( `dedup_skipped: ${this.dedupSkipped}` ) ;
-
-		if ( row?.oldest )
-			lines.push( `oldest: ${row.oldest} (${oldestRole}) "${oldestPreview}"` ) ;
-		else
-			lines.push( "oldest: (none)" ) ;
-
-		if ( row?.newest )
-			lines.push( `newest: ${row.newest} (${newestRole}) "${newestPreview}"` ) ;
-		else
-			lines.push( "newest: (none)" ) ;
-
-		return `<deep-memory-stats>\n${lines.join( "\n" )}\n</deep-memory-stats>` ;
-	}
-
-	// Store a specific fact/decision in long-term memory
-	public store( args : { role : "user" | "assistant"; content : string } ) : string
-	{
-		if ( ! this.isValidRole( args.role ) )
-			return "<deep-memory>\n(error: invalid role)\n</deep-memory>" ;
-
-		const normalized = this.normalizeContent( args.content ) ;
-		if ( ! normalized )
-			return "<deep-memory>\n(error: empty after normalization)\n</deep-memory>" ;
-
-		const id = this.hashContent( args.role, normalized ) ;
-		const result = this.stmtInsert.run( id, args.role, normalized ) ;
-
-		if ( result.changes )
-		{
-			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${args.role})` ) ;
-			return "<deep-memory>\n(stored)\n</deep-memory>" ;
-		}
-
-		return "<deep-memory>\n(already exists)\n</deep-memory>" ;
-	}
-
-	// Store conversation messages after stripping noise (tags, metadata, etc)
-	public handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
-	{
-		try
-		{
-			if ( ! output.messages?.length ) return ;
-
-			let stored = 0 ;
-
-			for ( const msg of output.messages )
-			{
-				try
-				{
-					if ( ! this.isValidRole( msg.info.role ) ) continue ;
-
-					if ( msg.info.sessionID )
-						this.sessionID = msg.info.sessionID ;
-
-					const id = msg.info.id ;
-					if ( id )
-					{
-						if ( this.seen.has( id ) ) continue ;
-						this.seen.add( id ) ;
-					}
-
-					const raw = this.extractText( msg ) ;
-					if ( ! raw ) continue ;
-
-					const normalized = this.normalizeContent( raw ) ;
-					if ( ! normalized ) continue ;
-
-					if ( this.isSimilar( normalized ) )
-					{
-						log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${msg.info.role})` ) ;
-						this.dedupSkipped++ ;
-						continue ;
-					}
-
-					const hashId = this.hashContent( msg.info.role, normalized ) ;
-					const result = this.stmtInsert.run( hashId, msg.info.role, normalized ) ;
-
-					if ( result.changes ) stored++ ;
-				}
-				catch ( err )
-				{
-					log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` ) ;
-					continue ;
-				}
-			}
-
-			if ( stored ) log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
-		}
-		catch ( err )
-		{
-			log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` ) ;
-		}
-	}
-
-	// Append memory-search tool reminder to system prompt
-	public handleSystemTransform( output : { system : string[] } ) : void
-	{
-		output.system.push( SYSTEM_PROMPT ) ;
+		return result.changes ?? 0 ;
 	}
 
 	// Fetch last session message via SDK (backfill for the message transform never sees)
@@ -735,26 +454,184 @@ class DeepMemory
 		}
 	}
 
+	// ── Public hooks ──────────────────────────────────────────────────────
+
+	// Store conversation messages after stripping noise (tags, metadata, etc)
+	public handleMessagesTransform( output : { messages: Array<MessageLike> } ) : void
+	{
+		try
+		{
+			if ( ! output.messages?.length ) return ;
+
+			let stored = 0 ;
+
+			for ( const msg of output.messages )
+			{
+				try
+				{
+					if ( msg.info.sessionID )
+						this.sessionID = msg.info.sessionID ;
+
+					const id = msg.info.id ;
+
+					if ( id )
+					{
+						if ( this.seen.has( id ) ) continue ;
+						this.seen.add( id ) ;
+					}
+
+					if ( this.storeMessage( msg ) ) stored++ ;
+				}
+				catch ( err )
+				{
+					log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` ) ;
+					continue ;
+				}
+			}
+
+			if ( stored ) log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
+		}
+		catch ( err )
+		{
+			log( LOG_LEVEL.ERROR, `messages.transform: ${( err as Error ).message}` ) ;
+		}
+	}
+
+	// Store one record: normalize, near-dup gate, exact dedup, insert.
+	// Returns the outcome so callers can report it.
+	protected storeRecord( role : string, content : string ) : "stored" | "duplicate" | "similar" | "invalid"
+	{
+		if ( role !== "user" && role !== "assistant" ) return "invalid" ;
+
+		const normalized = this.normalizeContent( content ) ;
+		if ( ! normalized ) return "invalid" ;
+
+		if ( normalized.length >= 20 && this.isNearDuplicate( normalized ) )
+		{
+			log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${ role })` ) ;
+			this.dedupSkipped ++ ;
+			return "similar" ;
+		}
+
+		const id = this.hashContent( role, normalized ) ;
+		const result = this.stmtInsert.run( id, role, normalized ) ;
+
+		if ( ! result.changes ) return "duplicate" ;
+
+		this.stored++ ;
+
+		return "stored" ;
+	}
+
+	// Store one conversation message. Returns true when newly stored.
+	protected storeMessage( msg : MessageLike ) : boolean
+	{
+		const raw = this.extractText( msg ) ;
+
+		return raw ? this.storeRecord( msg.info.role, raw ) === "stored" : false ;
+	}
+
+	// Append memory-search tool reminder to system prompt
+	public handleSystemTransform( output : { system : string[] } ) : void
+	{
+		output.system.push( SYSTEM_PROMPT ) ;
+	}
+
+	// Store an explicit fact/decision (memory_store tool)
+	public store( args : { role : string; content : string } ) : string
+	{
+		const result = this.storeRecord( args.role, args.content ) ;
+
+		if ( result === "stored" )
+		{
+			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${ args.role })` ) ;
+			return "<deep-memory>\n(stored)\n</deep-memory>" ;
+		}
+
+		if ( result === "duplicate" )
+			return "<deep-memory>\n(already exists)\n</deep-memory>" ;
+
+		if ( result === "similar" )
+			return "<deep-memory>\n(skipped: similar record exists)\n</deep-memory>" ;
+
+		return "<deep-memory>\n(error: invalid role or empty content)\n</deep-memory>" ;
+	}
+
+	// Search memory, compress results into token-budgeted block
+	public recall( args : { query : string; max_results? : number } ) : string
+	{
+		const limit = Math.max( 1, args.max_results ?? this.config.max_results ) ;
+		const hits  = this.searchMemories(
+			args.query, limit, this.config.search_max_days
+		) ;
+
+		const contextStr = ! hits.length
+			? ""
+			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
+
+		if ( ! contextStr )
+			return "<deep-memory>\n(no matches found)\n</deep-memory>" ;
+
+		return `<deep-memory>\n${contextStr}\n</deep-memory>` ;
+	}
+
+	// Return storage statistics as formatted string
+	public stats() : string
+	{
+		const row = this.db.prepare(
+			`SELECT
+				COUNT(*) AS total,
+				COALESCE( SUM( LENGTH( content ) ), 0 ) AS size_bytes,
+				SUM( CASE WHEN role = 'user' THEN 1 ELSE 0 END ) AS user_count,
+				SUM( CASE WHEN role = 'assistant' THEN 1 ELSE 0 END ) AS assistant_count
+			 FROM records`
+		).get() as { total : number; size_bytes : number; user_count : number; assistant_count : number } | null ;
+
+		const oldest = this.db.prepare(
+			"SELECT role, content, created FROM records ORDER BY created ASC LIMIT 1"
+		).get() as { role : string; content : string; created : string } | null ;
+
+		const newest = this.db.prepare(
+			"SELECT role, content, created FROM records ORDER BY created DESC LIMIT 1"
+		).get() as { role : string; content : string; created : string } | null ;
+
+		let dbSize = 0 ;
+		try { dbSize = statSync( DB_PATH ).size ; } catch {}
+
+		const fmt = ( n : number ) : string =>
+		{
+			if ( n < 1024 ) return `${n} B` ;
+			if ( n < 1024 * 1024 ) return `${( n / 1024 ).toFixed( 1 )} KB` ;
+			return `${( n / ( 1024 * 1024 ) ).toFixed( 1 )} MB` ;
+		} ;
+
+		const lines : string[] = [] ;
+		lines.push( `records: ${row?.total ?? 0}` ) ;
+		lines.push( `size: ${fmt( row?.size_bytes ?? 0 )}` ) ;
+		lines.push( `db_size: ${fmt( dbSize )}` ) ;
+		lines.push( `by_role: user=${row?.user_count ?? 0}, assistant=${row?.assistant_count ?? 0}` ) ;
+		lines.push( `stored: ${this.stored}, dedup_skipped: ${this.dedupSkipped}` ) ;
+
+		if ( oldest )
+			lines.push( `oldest: ${oldest.created} (${oldest.role}) "${oldest.content.slice( 0, 80 )}"` ) ;
+		else
+			lines.push( "oldest: (none)" ) ;
+
+		if ( newest )
+			lines.push( `newest: ${newest.created} (${newest.role}) "${newest.content.slice( 0, 80 )}"` ) ;
+		else
+			lines.push( "newest: (none)" ) ;
+
+		return `<deep-memory-stats>\n${lines.join( "\n" )}\n</deep-memory-stats>` ;
+	}
+
 	// Backfill last message on dispose, close DB
 	public async dispose() : Promise<void>
 	{
 		try
 		{
 			const msg = await this.fetchLastMessage() ;
-			if ( msg )
-			{
-				const raw  = this.extractText( msg ) ;
-				const norm = this.normalizeContent( raw ) ;
-
-				if ( norm && this.isValidRole( msg.info.role ) && ! this.isSimilar( norm ) )
-				{
-					const id   = this.hashContent( msg.info.role, norm ) ;
-					const res  = this.stmtInsert.run( id, msg.info.role, norm ) ;
-
-					if ( res.changes )
-						log( LOG_LEVEL.DEBUG, `Stored last message (role=${msg.info.role})` ) ;
-				}
-			}
+			if ( msg ) this.storeMessage( msg ) ;
 		}
 		catch ( err )
 		{
@@ -771,6 +648,23 @@ class DeepMemory
 }
 
 // ─── Plugin ────────────────────────────────────────────────────────────────
+
+// Wrap a tool body so it never throws: log the error, return a block
+function guard<A>( tag : string, open : string, fn : ( args : A ) => string ) : ( args : A ) => Promise<string>
+{
+	return async ( args : A ) =>
+	{
+		try
+		{
+			return fn( args ) ;
+		}
+		catch ( err )
+		{
+			log( LOG_LEVEL.ERROR, `${ tag }: ${ ( err as Error ).message }` ) ;
+			return `<${ open }>\n(error: ${ tag })\n</${ open }>` ;
+		}
+	} ;
+}
 
 // Plugin factory: load config, open storage, register hooks
 export default ( async ( ctx : PluginInput ) =>
@@ -795,18 +689,7 @@ export default ( async ( ctx : PluginInput ) =>
 					query : tool.schema.string().describe( SEARCH_QUERY_DESC ),
 					max_results : tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
 				},
-				async execute( args, _context )
-				{
-					try
-					{
-						return dm.recall( args ) ;
-					}
-					catch ( err )
-					{
-						log( LOG_LEVEL.ERROR, `memory_search: ${( err as Error ).message}` ) ;
-						return "<deep-memory>\n(error searching memory)\n</deep-memory>" ;
-					}
-				},
+				execute : guard( "memory_search", "deep-memory", args => dm.recall( args ) ),
 			} ),
 
 			memory_store : tool( {
@@ -815,35 +698,13 @@ export default ( async ( ctx : PluginInput ) =>
 					role : tool.schema.string().describe( STORE_ROLE_DESC ),
 					content : tool.schema.string().describe( STORE_CONTENT_DESC ),
 				},
-				async execute( args, _context )
-				{
-					try
-					{
-						return dm.store( args ) ;
-					}
-					catch ( err )
-					{
-						log( LOG_LEVEL.ERROR, `memory_store: ${( err as Error ).message}` ) ;
-						return "<deep-memory>\n(error storing memory)\n</deep-memory>" ;
-					}
-				},
+				execute : guard( "memory_store", "deep-memory", args => dm.store( args ) ),
 			} ),
 
 			memory_stats : tool( {
 				description : STATS_DESC,
 				args : {},
-				async execute( _args, _context )
-				{
-					try
-					{
-						return dm.stats() ;
-					}
-					catch ( err )
-					{
-						log( LOG_LEVEL.ERROR, `memory_stats: ${( err as Error ).message}` ) ;
-						return "<deep-memory-stats>\n(error reading stats)\n</deep-memory-stats>" ;
-					}
-				},
+				execute : guard( "memory_stats", "deep-memory-stats", () => dm.stats() ),
 			} ),
 		},
 
@@ -859,7 +720,7 @@ export default ( async ( ctx : PluginInput ) =>
 
 		dispose : async () =>
 		{
-			dm.dispose() ;
+			await dm.dispose() ;
 		},
 	} ;
 } ) satisfies Plugin ;
