@@ -9,7 +9,7 @@
 
 > Your AI should remember. Period.
 
-- **Copy and it works** — 853 lines, native bun:sqlite. No npm, no node_modules, no drama.
+- **Copy and it works** — 729 lines, native bun:sqlite. No npm, no node_modules, no drama.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65. You do nothing.
 
