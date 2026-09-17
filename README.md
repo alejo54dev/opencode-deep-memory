@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.33-blue)
+![Version](https://img.shields.io/badge/version-1.1.34-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
@@ -94,7 +94,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 ```jsonc
 {
 	"enabled": true,            // master switch
-	"max_results": 20,          // max FTS results returned per search call
+	"max_results": 10,          // max FTS results returned per search call
 	"max_tokens_memory": 800,   // max tokens consumed by memory recall block
 	"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
@@ -105,7 +105,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `max_results` | `20` | Max FTS results per search |
+| `max_results` | `10` | Max FTS results per search |
 | `max_tokens_memory` | `800` | Token budget for compressed context |
 | `max_snippet_chars` | `600` | Max chars per snippet before truncation |
 | `data_keep_days` | `600` | 0 = forever, prune records older than this on startup |
@@ -142,4 +142,4 @@ Less is more. :)
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.33
+AGPL-3.0 — version 1.1.34

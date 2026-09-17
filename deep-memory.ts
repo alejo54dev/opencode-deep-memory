@@ -20,7 +20,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.33
+*	@version 1.1.34
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -46,12 +46,12 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 const CONFIG : Config =
 {
-	enabled: true,             // master switch
-	max_results: 20,           // max FTS results returned per search call
-	max_tokens_memory: 800,    // max tokens consumed by memory recall block
-	max_snippet_chars: 600,    // max chars per memory snippet in recall output
-	data_keep_days: 600,       // 0 = forever, prune records older than this on startup
-	log_level: "info",
+	enabled           : true, // master switch
+	max_results       : 10,   // max FTS results returned per search call
+	max_tokens_memory : 800,  // max tokens consumed by memory recall block
+	max_snippet_chars : 600,  // max chars per memory snippet in recall output
+	data_keep_days    : 600,  // 0 = forever, prune records older than this on startup
+	log_level         : "info",
 };
 
 const LOG_LEVEL =
@@ -144,7 +144,7 @@ interface MessageLike
 	parts : Array<{ type : string; text? : string; synthetic? : boolean; ignored? : boolean }> ;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Global Helpers ──────────────────────────────────────────────────────────
 
 // Current local datetime as ISO-like string: "2026-07-06T20:30:26"
 function timestamp() : string
@@ -161,6 +161,7 @@ function loadConfig() : Config
 {
 	let file : Partial<Config> = {} ;
 	let loaded = false ;
+
 	try
 	{
 		file = Bun.JSONC.parse( readFileSync( CONFIG_FILE, "utf8" ) ) as Partial<Config> ;
