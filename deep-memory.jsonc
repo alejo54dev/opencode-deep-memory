@@ -1,7 +1,6 @@
 {
 	"enabled": true,            // master switch
 	"max_results": 20,          // max FTS results returned per search call
-	"search_max_days": 600,     // 0 = all, max days of records to consider
 	"max_tokens_memory": 800,   // max tokens consumed by memory recall block
 	"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup

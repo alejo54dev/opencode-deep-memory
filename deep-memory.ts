@@ -13,7 +13,6 @@
 *	{
 *		"enabled": true,            // master switch
 *		"max_results": 20,          // max FTS results returned per search call
-*		"search_max_days": 600,     // 0 = all, max days of records to consider
 *		"max_tokens_memory": 800,   // max tokens consumed by memory recall block
 *		"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 *		"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
@@ -21,7 +20,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.31
+*	@version 1.1.32
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -49,7 +48,6 @@ const CONFIG : Config =
 {
 	enabled: true,             // master switch
 	max_results: 20,           // max FTS results returned per search call
-	search_max_days: 600,      // 0 = all, max days of records to consider
 	max_tokens_memory: 800,    // max tokens consumed by memory recall block
 	max_snippet_chars: 600,    // max chars per memory snippet in recall output
 	data_keep_days: 600,       // 0 = forever, prune records older than this on startup
@@ -126,7 +124,6 @@ interface Config
 {
 	enabled           : boolean ;
 	max_results       : number ;
-	search_max_days   : number ;
 	max_tokens_memory : number ;
 	max_snippet_chars : number ;
 	data_keep_days    : number ;
@@ -177,7 +174,6 @@ function loadConfig() : Config
 	Object.assign( CONFIG, file ) ;
 
 	CONFIG.max_results       = Math.max( 1, CONFIG.max_results ) ;
-	CONFIG.search_max_days   = Math.max( 0, CONFIG.search_max_days ) ;
 	CONFIG.max_tokens_memory = Math.max( 100, CONFIG.max_tokens_memory ) ;
 	CONFIG.max_snippet_chars = Math.max( 50, CONFIG.max_snippet_chars ) ;
 	CONFIG.data_keep_days    = Math.max( 0, CONFIG.data_keep_days ) ;
@@ -269,7 +265,6 @@ class DeepMemory
 			`SELECT t.id, t.role, t.content, t.created
 			 FROM records_fts JOIN records AS t ON records_fts.rowid = t.rowid
 			 WHERE records_fts MATCH ?
-			   AND ( ? = 0 OR julianday( 'now' ) - julianday( t.created ) <= ? )
 			 ORDER BY bm25( records_fts )
 			 LIMIT ?`
 		);
@@ -364,15 +359,15 @@ class DeepMemory
 		return terms.map( t => `"${t}"*` ).join( " OR " ) ;
 	}
 
-	// FTS5 search with age gate, ordered by bm25 relevance
-	protected searchMemories( query : string, limit : number, maxAgeDays : number ) : MemoryHit[]
+	// FTS5 search ordered by bm25 relevance
+	protected searchMemories( query : string, limit : number ) : MemoryHit[]
 	{
 		const sanitized = this.sanitizeQuery( query ) ;
 		if ( ! sanitized ) return [] ;
 
 		try
 		{
-			return this.stmtSearch.all( sanitized, maxAgeDays, maxAgeDays, limit ) as MemoryHit[] ;
+			return this.stmtSearch.all( sanitized, limit ) as MemoryHit[] ;
 		}
 		catch ( err )
 		{
@@ -552,9 +547,7 @@ class DeepMemory
 	public recall( args : { query : string; max_results? : number } ) : string
 	{
 		const limit = Math.max( 1, args.max_results ?? this.config.max_results ) ;
-		const hits  = this.searchMemories(
-			args.query, limit, this.config.search_max_days
-		) ;
+		const hits  = this.searchMemories( args.query, limit ) ;
 
 		const contextStr = ! hits.length
 			? ""

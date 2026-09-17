@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.31-blue)
+![Version](https://img.shields.io/badge/version-1.1.32-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
@@ -10,13 +10,13 @@
 
 > Your AI should remember. Period.
 
-- **Global memory** — every message of every session, across every project. Nothing is scoped away. `search_max_days` bounds what search looks at, `data_keep_days` prunes the store at startup.
+- **Global memory** — every message of every session, across every project. Nothing is scoped away. `data_keep_days` prunes the store at startup; search always covers what remains.
 
 - **Auto memory** — every message saves itself. Junk tags get stripped. Near-duplicates skipped via trigram Jaccard > 0.65 over the recent 200 (min 20 chars). You do nothing.
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, keyword + prefix matching.
 
-- **Plain pipeline** — FTS5 → age gate → `bm25()` ranking → the `max_results` cut → the token budget. No embeddings, no LLM calls in retrieval.
+- **Plain pipeline** — FTS5 → `bm25()` ranking → the `max_results` cut → the token budget. No embeddings, no LLM calls in retrieval.
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
@@ -42,7 +42,7 @@ flowchart TD
 
     MSG["💬 every message"] -->|"auto-capture"| STORE["🗄️ store<br/>SQLite + FTS5"]
 
-    D -->|"memory_search"| READ["🔍 FTS5 + age gate → bm25<br/>→ max_results cut → budget"]
+    D -->|"memory_search"| READ["🔍 FTS5 → bm25<br/>→ max_results cut → budget"]
     D -->|"memory_store"| WRITE["💾 memory_store"]
 
     WRITE --> STORE
@@ -58,7 +58,7 @@ flowchart TD
     style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store (age-gated) → `bm25()` ranking → the `max_results` cut → the token/snippet budget.
+Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store → `bm25()` ranking → the `max_results` cut → the token/snippet budget.
 
 ## 🧰 Tools
 
@@ -95,7 +95,6 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 {
 	"enabled": true,            // master switch
 	"max_results": 20,          // max FTS results returned per search call
-	"search_max_days": 600,     // 0 = all, max days of records to consider
 	"max_tokens_memory": 800,   // max tokens consumed by memory recall block
 	"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
@@ -107,7 +106,6 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 |---|---|---|
 | `enabled` | `true` | Master switch |
 | `max_results` | `20` | Max FTS results per search |
-| `search_max_days` | `600` | 0 = all, max days of records to consider |
 | `max_tokens_memory` | `800` | Token budget for compressed context |
 | `max_snippet_chars` | `600` | Max chars per snippet before truncation |
 | `data_keep_days` | `600` | 0 = forever, prune records older than this on startup |
@@ -144,4 +142,4 @@ Less is more. :)
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.31
+AGPL-3.0 — version 1.1.32
