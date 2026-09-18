@@ -299,12 +299,15 @@ class DeepMemory
 	// synthetic, ignored parts and compaction checkpoints (summary messages)
 	protected extractText( message : MessageLike ) : string
 	{
-		const checkpoint = message.info.summary === true ;
+		if ( message.info.summary == true ) return "" ;
+
 		const parts : string[] = [] ;
 
 		for ( const part of message.parts )
 		{
-			if ( checkpoint || part.type != "text" || part.synthetic == true || part.ignored == true ) continue ;
+			if ( part.type != "text" ) continue ;
+			if ( part.synthetic == true ) continue ;
+			if ( part.ignored == true ) continue ;
 			if ( part.text ) parts.push( part.text ) ;
 		}
 
