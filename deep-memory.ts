@@ -13,14 +13,12 @@
 *	{
 *		"enabled": true,            // master switch
 *		"max_results": 10,          // max FTS results returned per search call
-*		"max_tokens_memory": 800,   // max tokens consumed by memory recall block
-*		"max_snippet_chars": 600,   // max chars per memory snippet in recall output
 *		"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 *		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.34
+*	@version 1.1.35
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -46,12 +44,10 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 
 const CONFIG : Config =
 {
-	enabled           : true, // master switch
-	max_results       : 10,   // max FTS results returned per search call
-	max_tokens_memory : 800,  // max tokens consumed by memory recall block
-	max_snippet_chars : 600,  // max chars per memory snippet in recall output
-	data_keep_days    : 600,  // 0 = forever, prune records older than this on startup
-	log_level         : "info",
+	enabled        : true, // master switch
+	max_results    : 10,   // max FTS results returned per search call
+	data_keep_days : 600,  // 0 = forever, prune records older than this on startup
+	log_level      : "info",
 };
 
 const LOG_LEVEL =
@@ -62,9 +58,11 @@ const LOG_LEVEL =
 	DEBUG  : 3,
 } as const ;
 
-// Storage tuning — measured constants, not knobs
+// Tuning — measured constants, not knobs
 const DEDUP_THRESHOLD = 0.65 ;   // trigram Jaccard above which a record is a near-duplicate
 const RECENT_WINDOW   = 200 ;    // records compared on every store for near-dup detection
+const BUDGET_WORDS    = 1200 ;   // word budget per recall block
+const SNIPPET_CHARS   = 600 ;    // max chars per snippet before sentence-boundary truncation
 
 // Optional/additional chat content filter. (empty by default)
 const FILTER_PATTERNS =
@@ -122,12 +120,10 @@ const SYSTEM_PROMPT = [
 
 interface Config
 {
-	enabled           : boolean ;
-	max_results       : number ;
-	max_tokens_memory : number ;
-	max_snippet_chars : number ;
-	data_keep_days    : number ;
-	log_level         : "silent" | "error" | "info" | "debug" ;
+	enabled        : boolean ;
+	max_results    : number ;
+	data_keep_days : number ;
+	log_level      : "silent" | "error" | "info" | "debug" ;
 }
 
 interface MemoryHit
@@ -174,10 +170,8 @@ function loadConfig() : Config
 
 	Object.assign( CONFIG, file ) ;
 
-	CONFIG.max_results       = Math.max( 1, CONFIG.max_results ) ;
-	CONFIG.max_tokens_memory = Math.max( 100, CONFIG.max_tokens_memory ) ;
-	CONFIG.max_snippet_chars = Math.max( 50, CONFIG.max_snippet_chars ) ;
-	CONFIG.data_keep_days    = Math.max( 0, CONFIG.data_keep_days ) ;
+	CONFIG.max_results    = Math.max( 1, CONFIG.max_results ) ;
+	CONFIG.data_keep_days = Math.max( 0, CONFIG.data_keep_days ) ;
 
 	log( LOG_LEVEL.INFO, loaded ? "Config loaded" : "Config loaded (defaults)" ) ;
 
@@ -382,20 +376,20 @@ class DeepMemory
 		}
 	}
 
-	// Compress ranked hits into a token-budgeted context block
-	protected compressMemories( hits : MemoryHit[], maxTokens : number, maxSnippetChars : number ) : string
+	// Compress ranked hits into a budgeted context block
+	protected compressMemories( hits : MemoryHit[] ) : string
 	{
 		if ( ! hits.length ) return "" ;
 
 		const parts : string[] = [] ;
-		let budget = maxTokens ;
+		let budget = BUDGET_WORDS ;
 
 		for ( const h of hits )
 		{
 			let snippet = h.content.trim() ;
-			if ( snippet.length > maxSnippetChars )
+			if ( snippet.length > SNIPPET_CHARS )
 			{
-				const truncated = snippet.slice( 0, maxSnippetChars ) ;
+				const truncated = snippet.slice( 0, SNIPPET_CHARS ) ;
 				const match     = truncated.match( /[\s\S]*[.!?](?=\s|$)/ ) ;
 
 				snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
@@ -560,7 +554,7 @@ class DeepMemory
 
 		const contextStr = ! hits.length
 			? ""
-			: this.compressMemories( hits, this.config.max_tokens_memory, this.config.max_snippet_chars ) ;
+			: this.compressMemories( hits ) ;
 
 		if ( ! contextStr )
 			return "<memory-result>\n(no match fits the token budget)\n</memory-result>" ;
