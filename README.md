@@ -20,7 +20,7 @@
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
-- **Copy and it works** — one TypeScript file (664 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+- **Copy and it works** — one TypeScript file (666 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
 - **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
@@ -113,7 +113,7 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 
 ## 🪵 Logs
 
-`~/.config/opencode/deep-memory.log` (append-only). Format: `[TIMESTAMP] [LEVEL] message`.
+`~/.config/opencode/deep-memory.log` (append-only). Format: `[TIMESTAMP] [LEVEL]: message`.
 
 ```bash
 tail -f ~/.config/opencode/deep-memory.log
