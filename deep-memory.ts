@@ -379,8 +379,6 @@ class DeepMemory
 	// Compress ranked hits into a budgeted context block
 	protected compressMemories( hits : MemoryHit[] ) : string
 	{
-		if ( ! hits.length ) return "" ;
-
 		const parts : string[] = [] ;
 		let budget = BUDGET_WORDS ;
 
@@ -546,20 +544,16 @@ class DeepMemory
 		return "<memory-store>\n(error: invalid role or empty content)\n</memory-store>" ;
 	}
 
-	// Search memory, compress results into token-budgeted block
+	// Search memory, compress results into a budgeted block
 	public recall( args : { query : string; max_results? : number } ) : string
 	{
 		const limit = Math.max( 1, args.max_results ?? this.config.max_results ) ;
 		const hits  = this.searchMemories( args.query, limit ) ;
 
-		const contextStr = ! hits.length
-			? ""
-			: this.compressMemories( hits ) ;
+		if ( ! hits.length )
+			return "<memory-result>\n(no matches found)\n</memory-result>" ;
 
-		if ( ! contextStr )
-			return "<memory-result>\n(no match fits the token budget)\n</memory-result>" ;
-
-		return `<memory-result>\n${contextStr}\n</memory-result>` ;
+		return `<memory-result>\n${ this.compressMemories( hits ) }\n</memory-result>` ;
 	}
 
 	// Backfill last message on dispose, close DB

@@ -20,7 +20,7 @@
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
-- **Copy and it works** — one TypeScript file (660 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+- **Copy and it works** — one TypeScript file (654 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
 - **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
