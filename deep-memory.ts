@@ -17,7 +17,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.35
+*	@version 1.1.36
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -190,6 +190,23 @@ function log( level : number, message : string ) : void
 		appendFileSync( LOG_FILE, `[${ timestamp() }] [${ label }]: ${ message }\n` ) ;
 	}
 	catch {}
+}
+
+// Wrap a tool body so it never throws: log the error, return a block
+function guardTool<A>( tag : string, open : string, fn : ( args : A ) => string ) : ( args : A ) => Promise<string>
+{
+	return async ( args : A ) =>
+	{
+		try
+		{
+			return fn( args ) ;
+		}
+		catch ( err )
+		{
+			log( LOG_LEVEL.ERROR, `${ tag }: ${ ( err as Error ).message }` ) ;
+			return `<${ open }>\n(error: ${ tag })\n</${ open }>` ;
+		}
+	} ;
 }
 
 // ─── DeepMemory ────────────────────────────────────────────────────────────
@@ -581,23 +598,6 @@ class DeepMemory
 
 // ─── Plugin ────────────────────────────────────────────────────────────────
 
-// Wrap a tool body so it never throws: log the error, return a block
-function guard<A>( tag : string, open : string, fn : ( args : A ) => string ) : ( args : A ) => Promise<string>
-{
-	return async ( args : A ) =>
-	{
-		try
-		{
-			return fn( args ) ;
-		}
-		catch ( err )
-		{
-			log( LOG_LEVEL.ERROR, `${ tag }: ${ ( err as Error ).message }` ) ;
-			return `<${ open }>\n(error: ${ tag })\n</${ open }>` ;
-		}
-	} ;
-}
-
 // Plugin factory: load config, open storage, register hooks
 export default ( async ( ctx : PluginInput ) =>
 {
@@ -621,7 +621,7 @@ export default ( async ( ctx : PluginInput ) =>
 					query : tool.schema.string().describe( SEARCH_QUERY_DESC ),
 					max_results : tool.schema.number().optional().describe( SEARCH_MAX_RESULTS_DESC ),
 				},
-				execute : guard( "memory_search", "memory-result", args => dm.recall( args ) ),
+				execute : guardTool( "memory_search", "memory-result", args => dm.recall( args ) ),
 			} ),
 
 			memory_store : tool( {
@@ -630,7 +630,7 @@ export default ( async ( ctx : PluginInput ) =>
 					role : tool.schema.string().describe( STORE_ROLE_DESC ),
 					content : tool.schema.string().describe( STORE_CONTENT_DESC ),
 				},
-				execute : guard( "memory_store", "memory-store", args => dm.store( args ) ),
+				execute : guardTool( "memory_store", "memory-store", args => dm.store( args ) ),
 			} ),
 
 		},
