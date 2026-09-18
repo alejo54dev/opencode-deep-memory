@@ -1,6 +1,6 @@
 # Deep Memory (tiny brain, big thoughts)
 
-![Version](https://img.shields.io/badge/version-1.1.34-blue)
+![Version](https://img.shields.io/badge/version-1.1.35-blue)
 ![License](https://img.shields.io/badge/license-AGPL%203.0-blue)
 ![OpenCode v1](https://img.shields.io/badge/OpenCode-v1-purple)
 
@@ -32,6 +32,8 @@ The model decides when to ask. A short `<memory>` reminder in the system prompt 
 
 When it asks, the search runs over the whole database — across projects, across sessions, across months — and returns only what matters.
 
+The recall path has no knobs: its constants are measured against a real store, never settings. Nothing to tune — and nothing to break.
+
 ## 🔄 How it works
 
 One store; messages go in, searches come out.
@@ -58,7 +60,7 @@ flowchart TD
     style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store → `bm25()` ranking → the results cut → the block budget (fixed at ~80 words per result).
+Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store → `bm25()` ranking → the results cut → the block budget.
 
 ## 🧰 Tools
 
@@ -105,7 +107,15 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | `data_keep_days` | `600` | 0 = forever, prune records older than this on startup |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 
-Recall is fully fixed and measured: 10 results by default (per-call `max_results` up to 20), 600 chars per snippet, 1200-word block budget — nothing to misconfigure.
+Recall is fixed by design — these are measured constants, not settings:
+
+| Constant | Value | Why |
+|---|---|---|
+| Results per call | `10` default, `20` max | the model can ask for fewer per call; `max_results` is clamped to 1-20 |
+| Snippet length | `600` chars | long records are cut at a sentence boundary, never mid-word |
+| Block budget | `1200` words | measured: every requested result fits up to the 20 cap |
+
+The config file carries only operational keys — switch, retention, log level. Zero recall knobs, nothing to misconfigure.
 
 ## 🪵 Logs
 
@@ -138,4 +148,4 @@ Less is more. :)
 
 ## 📄 License
 
-AGPL-3.0 — version 1.1.34
+AGPL-3.0 — version 1.1.35
