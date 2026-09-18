@@ -383,15 +383,7 @@ class DeepMemory
 		const sanitized = this.sanitizeQuery( query ) ;
 		if ( ! sanitized ) return [] ;
 
-		try
-		{
-			return this.stmtSearch.all( sanitized, limit ) as MemoryHit[] ;
-		}
-		catch ( err )
-		{
-			log( LOG_LEVEL.ERROR, `searchMemories: ${( err as Error ).message }` ) ;
-			return [] ;
-		}
+		return this.stmtSearch.all( sanitized, limit ) as MemoryHit[] ;
 	}
 
 	// Compress ranked hits into a budgeted context block
@@ -431,8 +423,8 @@ class DeepMemory
 		if ( keepDays <= 0 ) return 0 ;
 
 		const result = this.db.run(
-			"DELETE FROM records WHERE julianday( 'now' ) - julianday( created ) > ?",
-			[ keepDays ]
+			"DELETE FROM records WHERE created < datetime( 'now', ? )",
+			[ `-${ keepDays } days` ]
 		);
 
 		return result.changes ?? 0 ;
@@ -565,7 +557,7 @@ class DeepMemory
 	// Search memory, compress results into a budgeted block
 	public recall( args : { query : string; max_results? : number } ) : string
 	{
-		const limit = Math.min( MAX_RESULTS, Math.max( 1, args.max_results ?? DEFAULT_RESULTS ) ) ;
+		const limit = Math.min( MAX_RESULTS, Math.max( 1, Math.trunc( args.max_results ?? DEFAULT_RESULTS ) ) ) ;
 		const hits  = this.searchMemories( args.query, limit ) ;
 
 		if ( ! hits.length )
