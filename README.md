@@ -16,11 +16,11 @@
 
 - **Cross-project search** — that bug you fixed last week shows up on its own. SQLite FTS5, keyword + prefix matching.
 
-- **Plain pipeline** — FTS5 → `bm25()` ranking → the `max_results` cut → the token budget. No embeddings, no LLM calls in retrieval.
+- **Plain pipeline** — FTS5 → `bm25()` ranking → the results cut → the block budget. No embeddings, no LLM calls in retrieval.
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
-- **Copy and it works** — one TypeScript file (654 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+- **Copy and it works** — one TypeScript file (652 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
 - **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
@@ -42,7 +42,7 @@ flowchart TD
 
     MSG["💬 every message"] -->|"auto-capture"| STORE["🗄️ store<br/>SQLite + FTS5"]
 
-    D -->|"memory_search"| READ["🔍 FTS5 → bm25<br/>→ max_results cut → budget"]
+    D -->|"memory_search"| READ["🔍 FTS5 → bm25<br/>→ results cut → budget"]
     D -->|"memory_store"| WRITE["💾 memory_store"]
 
     WRITE --> STORE
@@ -58,7 +58,7 @@ flowchart TD
     style OUT fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
-Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store → `bm25()` ranking → the `max_results` cut → the block budget (fixed at ~80 words per result).
+Every message is captured automatically. `memory_store` saves one fact when the user explicitly asks. `memory_search` runs when the model needs past context: FTS5 over the whole store → `bm25()` ranking → the results cut → the block budget (fixed at ~80 words per result).
 
 ## 🧰 Tools
 
@@ -94,7 +94,6 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 ```jsonc
 {
 	"enabled": true,            // master switch
-	"max_results": 10,          // max FTS results returned per search call
 	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }
@@ -103,11 +102,10 @@ Copy `deep-memory.jsonc` (included in this repo) to `~/.config/opencode/` and ed
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `max_results` | `10` | Max FTS results per search |
 | `data_keep_days` | `600` | 0 = forever, prune records older than this on startup |
 | `log_level` | `"info"` | `"silent"`, `"error"`, `"info"`, `"debug"` |
 
-Snippet length and block budget are measured constants (600 chars per snippet, 1200-word budget), tuned and verified against the real store — not knobs.
+Recall is fully fixed and measured: 10 results by default (per-call `max_results` up to 20), 600 chars per snippet, 1200-word block budget — nothing to misconfigure.
 
 ## 🪵 Logs
 

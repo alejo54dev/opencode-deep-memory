@@ -1,6 +1,5 @@
 {
 	"enabled": true,            // master switch
-	"max_results": 10,          // max FTS results returned per search call
 	"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 	"log_level": "info"         // "silent" | "error" | "info" | "debug"
 }

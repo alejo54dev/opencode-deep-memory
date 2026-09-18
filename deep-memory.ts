@@ -12,7 +12,6 @@
 *	@example ~/.config/opencode/deep-memory.jsonc
 *	{
 *		"enabled": true,            // master switch
-*		"max_results": 10,          // max FTS results returned per search call
 *		"data_keep_days": 600,      // 0 = forever, prune records older than this on startup
 *		"log_level": "info"         // "silent" | "error" | "info" | "debug"
 *	}
@@ -45,7 +44,6 @@ const DB_PATH     = join( STORAGE_DIR, "deep-memory.db" ) ;
 const CONFIG : Config =
 {
 	enabled        : true, // master switch
-	max_results    : 10,   // max FTS results returned per search call
 	data_keep_days : 600,  // 0 = forever, prune records older than this on startup
 	log_level      : "info",
 };
@@ -61,6 +59,8 @@ const LOG_LEVEL =
 // Tuning — measured constants, not knobs
 const DEDUP_THRESHOLD = 0.65 ;   // trigram Jaccard above which a record is a near-duplicate
 const RECENT_WINDOW   = 200 ;    // records compared on every store for near-dup detection
+const DEFAULT_RESULTS = 10 ;     // recall results when the caller passes no max_results
+const MAX_RESULTS     = 20 ;     // hard cap per recall call (budget 1200 words fits ~20)
 const BUDGET_WORDS    = 1200 ;   // word budget per recall block
 const SNIPPET_CHARS   = 600 ;    // max chars per snippet before sentence-boundary truncation
 
@@ -88,7 +88,7 @@ const SEARCH_QUERY_DESC = [
 
 const SEARCH_MAX_RESULTS_DESC = [
 	"Maximum number of results to return",
-	"(default: the configured max_results)",
+	"(default: 10, max: 20)",
 ].join( " " ) ;
 
 const STORE_DESC = [
@@ -121,7 +121,6 @@ const SYSTEM_PROMPT = [
 interface Config
 {
 	enabled        : boolean ;
-	max_results    : number ;
 	data_keep_days : number ;
 	log_level      : "silent" | "error" | "info" | "debug" ;
 }
@@ -170,7 +169,6 @@ function loadConfig() : Config
 
 	Object.assign( CONFIG, file ) ;
 
-	CONFIG.max_results    = Math.max( 1, CONFIG.max_results ) ;
 	CONFIG.data_keep_days = Math.max( 0, CONFIG.data_keep_days ) ;
 
 	log( LOG_LEVEL.INFO, loaded ? "Config loaded" : "Config loaded (defaults)" ) ;
@@ -547,7 +545,7 @@ class DeepMemory
 	// Search memory, compress results into a budgeted block
 	public recall( args : { query : string; max_results? : number } ) : string
 	{
-		const limit = Math.max( 1, args.max_results ?? this.config.max_results ) ;
+		const limit = Math.min( MAX_RESULTS, Math.max( 1, args.max_results ?? DEFAULT_RESULTS ) ) ;
 		const hits  = this.searchMemories( args.query, limit ) ;
 
 		if ( ! hits.length )
