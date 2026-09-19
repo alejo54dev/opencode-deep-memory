@@ -20,7 +20,7 @@
 
 - **Store on demand** — `memory_store(role, content)` persists a specific fact or decision. Same normalize and dedup gates as the automatic capture — just triggered by you.
 
-- **Copy and it works** — one TypeScript file (652 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
+- **Copy and it works** — one TypeScript file (664 lines), native `bun:sqlite`. No npm, no node_modules, no drama.
 
 - **Safe by design** — normalize, dedup gates and a controlled startup prune. Ranking only reorders — no recency decay, no candidate dropped.
 
@@ -125,12 +125,16 @@ The config file carries only operational keys — switch, retention, log level. 
 tail -f ~/.config/opencode/deep-memory.log
 ```
 
+Two voices: **INFO** tracks lifecycle (config load, start, prune, explicit `memory_store`, close); **DEBUG** tracks per-turn mechanics (auto-capture counts, dedup skips, searches, dispose backfill).
+
 ```log
-[2026-09-17T01:20:00] [INFO]: Config loaded
-[2026-09-17T01:20:00] [INFO]: Initialized
-[2026-09-17T01:31:12] [INFO]: Stored: 2 records
-[2026-09-17T01:35:40] [DEBUG]: Dedup: skipped similar record (role=assistant)
-[2026-09-17T01:40:00] [INFO]: Disposed
+[2026-09-19T15:20:15] [INFO]: Config loaded
+[2026-09-19T15:20:15] [INFO]: Initialized
+[2026-09-19T15:20:24] [INFO]: Stored: 1 records
+[2026-09-19T15:20:24] [DEBUG]: Skipped: 62 duplicate, 0 similar, 0 invalid
+[2026-09-19T15:20:41] [DEBUG]: Search: 3 hits (limit 3)
+[2026-09-19T15:20:59] [DEBUG]: Backfill: stored (role=assistant)
+[2026-09-19T15:20:59] [INFO]: Disposed
 ```
 
 ## 💬 Notes
@@ -138,6 +142,7 @@ tail -f ~/.config/opencode/deep-memory.log
 - **Exact dedup** — `id` is the MD5 of `role + ":" + content.toLowerCase()`, a `TEXT PRIMARY KEY` with `INSERT OR IGNORE`.
 - **Near-dup scope** — the trigram gate only looks at the last 200 records, so two near-identical messages far apart in time can both be stored.
 - **System-injected parts** — message parts flagged `synthetic` or `ignored` are skipped during storage.
+- **Honest errors** — a failed search never reads as an empty result: it returns `<memory-result>(error: memory_search)</memory-result>` and logs the failure.
 
 Less is more. :)
 
