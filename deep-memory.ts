@@ -446,9 +446,9 @@ class DeepMemory
 
 			return res?.data?.[ 0 ] ?? null ;
 		}
-		catch
+		catch ( err )
 		{
-			log( LOG_LEVEL.ERROR, "fetchLastMessage failed" ) ;
+			log( LOG_LEVEL.ERROR, `fetchLastMessage: ${( err as Error ).message}` ) ;
 			return null ;
 		}
 	}
@@ -567,6 +567,8 @@ class DeepMemory
 	{
 		const limit = Math.min( MAX_RESULTS, Math.max( 1, Math.trunc( args.max_results ?? DEFAULT_RESULTS ) ) ) ;
 		const hits  = this.searchMemories( args.query, limit ) ;
+
+		log( LOG_LEVEL.DEBUG, `Search: ${hits.length} hits (limit ${limit})` ) ;
 
 		if ( ! hits.length )
 			return "<memory-result>\n(no matches found)\n</memory-result>" ;
