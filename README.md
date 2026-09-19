@@ -119,10 +119,20 @@ The config file carries only operational keys — switch, retention, log level. 
 
 ## 🪵 Logs
 
-`~/.config/opencode/deep-memory.log` (append-only). Format: `[TIMESTAMP] [LEVEL]: message`. Quiet by default — `info` logs lifecycle, `debug` adds per-turn detail.
+`~/.config/opencode/deep-memory.log` (append-only). Format: `[TIMESTAMP] [LEVEL]: message`.
 
 ```bash
 tail -f ~/.config/opencode/deep-memory.log
+```
+
+```log
+[2026-09-19T15:20:15] [INFO]: Config loaded
+[2026-09-19T15:20:15] [INFO]: Initialized
+[2026-09-19T15:20:24] [INFO]: Stored: 1 records
+[2026-09-19T15:20:24] [DEBUG]: Skipped: 62 duplicate, 0 similar, 0 invalid
+[2026-09-19T15:20:41] [DEBUG]: Search: 3 hits (limit 3)
+[2026-09-19T15:20:59] [DEBUG]: Backfill: stored (role=assistant)
+[2026-09-19T15:20:59] [INFO]: Disposed
 ```
 
 ## 💬 Notes
