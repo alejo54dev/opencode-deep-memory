@@ -584,7 +584,7 @@ class DeepMemory
 			if ( msg )
 			{
 				const result = this.storeMessage( msg ) ;
-				log( LOG_LEVEL.INFO, `Backfill: ${result ?? "no text"} (role=${msg.info.role})` ) ;
+				log( LOG_LEVEL.DEBUG, `Backfill: ${result ?? "no text"} (role=${msg.info.role})` ) ;
 			}
 			else
 				log( LOG_LEVEL.DEBUG, "Backfill: no message" ) ;
