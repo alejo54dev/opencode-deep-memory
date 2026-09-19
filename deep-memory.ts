@@ -139,6 +139,8 @@ interface MessageLike
 	parts : Array<{ type : string; text? : string; synthetic? : boolean; ignored? : boolean }> ;
 }
 
+type StoreOutcome = "stored" | "duplicate" | "similar" | "invalid" ;
+
 // ─── Global Helpers ──────────────────────────────────────────────────────────
 
 // Current local datetime as ISO-like string: "2026-07-06T20:30:26"
@@ -461,6 +463,9 @@ class DeepMemory
 			if ( ! output.messages?.length ) return ;
 
 			let stored = 0 ;
+			let duplicate = 0 ;
+			let similar = 0 ;
+			let invalid = 0 ;
 
 			for ( const msg of output.messages )
 			{
@@ -477,7 +482,12 @@ class DeepMemory
 						this.seen.add( id ) ;
 					}
 
-					if ( this.storeMessage( msg ) ) stored++ ;
+					const result = this.storeMessage( msg ) ;
+
+					if ( result === "stored" ) stored ++ ;
+					else if ( result === "duplicate" ) duplicate ++ ;
+					else if ( result === "similar" ) similar ++ ;
+					else if ( result === "invalid" ) invalid ++ ;
 				}
 				catch ( err )
 				{
@@ -487,6 +497,7 @@ class DeepMemory
 			}
 
 			if ( stored ) log( LOG_LEVEL.INFO, `Stored: ${stored} records` ) ;
+			if ( duplicate || similar || invalid ) log( LOG_LEVEL.DEBUG, `Skipped: ${duplicate} duplicate, ${similar} similar, ${invalid} invalid` ) ;
 		}
 		catch ( err )
 		{
@@ -496,7 +507,7 @@ class DeepMemory
 
 	// Store one record: normalize, exact dedup, near-dup gate, insert.
 	// Returns the outcome so callers can report it.
-	protected storeRecord( role : string, content : string ) : "stored" | "duplicate" | "similar" | "invalid"
+	protected storeRecord( role : string, content : string ) : StoreOutcome
 	{
 		if ( role !== "user" && role !== "assistant" ) return "invalid" ;
 
@@ -508,10 +519,7 @@ class DeepMemory
 		if ( this.stmtExists.get( id ) ) return "duplicate" ;
 
 		if ( normalized.length >= 20 && this.isNearDuplicate( normalized ) )
-		{
-			log( LOG_LEVEL.DEBUG, `Dedup: skipped similar record (role=${ role })` ) ;
 			return "similar" ;
-		}
 
 		const result = this.stmtInsert.run( id, role, normalized ) ;
 
@@ -520,12 +528,12 @@ class DeepMemory
 		return "stored" ;
 	}
 
-	// Store one conversation message. Returns true when newly stored.
-	protected storeMessage( msg : MessageLike ) : boolean
+	// Store one conversation message; null when it has no text to store
+	protected storeMessage( msg : MessageLike ) : StoreOutcome | null
 	{
 		const raw = this.extractText( msg ) ;
 
-		return raw ? this.storeRecord( msg.info.role, raw ) === "stored" : false ;
+		return raw ? this.storeRecord( msg.info.role, raw ) : null ;
 	}
 
 	// Append memory-search tool reminder to system prompt
@@ -572,7 +580,14 @@ class DeepMemory
 		try
 		{
 			const msg = await this.fetchLastMessage() ;
-			if ( msg ) this.storeMessage( msg ) ;
+
+			if ( msg )
+			{
+				const result = this.storeMessage( msg ) ;
+				log( LOG_LEVEL.INFO, `Backfill: ${result ?? "no text"} (role=${msg.info.role})` ) ;
+			}
+			else
+				log( LOG_LEVEL.DEBUG, "Backfill: no message" ) ;
 		}
 		catch ( err )
 		{
