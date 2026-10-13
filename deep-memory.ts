@@ -369,7 +369,7 @@ class DeepMemory
 	// Convert free-form text into a safe FTS5 OR-query
 	protected sanitizeQuery( input : string ) : string
 	{
-		if ( ! input || typeof input !== "string" ) return "" ;
+		if ( ! input || typeof input != "string" ) return "" ;
 
 		const cleaned = input.toLowerCase().replace( /[^\p{L}\p{N}]+/gu, " " ) ;
 		const terms = cleaned.split( /\s+/ ).filter( t => t.length > 1 ) ;
@@ -405,7 +405,7 @@ class DeepMemory
 				snippet = match ? match[ 0 ].trimEnd() + "…" : truncated + "…" ;
 			}
 
-			const line = h.role === "assistant"
+			const line = h.role == "assistant"
 				? `${h.created} → ${snippet}`
 				: `${h.created}   ${snippet}` ;
 
@@ -484,10 +484,10 @@ class DeepMemory
 
 					const result = this.storeMessage( msg ) ;
 
-					if ( result === "stored" ) stored ++ ;
-					else if ( result === "duplicate" ) duplicate ++ ;
-					else if ( result === "similar" ) similar ++ ;
-					else if ( result === "invalid" ) invalid ++ ;
+					if ( result == "stored" ) stored ++ ;
+					else if ( result == "duplicate" ) duplicate ++ ;
+					else if ( result == "similar" ) similar ++ ;
+					else if ( result == "invalid" ) invalid ++ ;
 				}
 				catch ( err )
 				{
@@ -509,7 +509,7 @@ class DeepMemory
 	// Returns the outcome so callers can report it.
 	protected storeRecord( role : string, content : string ) : StoreOutcome
 	{
-		if ( role !== "user" && role !== "assistant" ) return "invalid" ;
+		if ( role != "user" && role != "assistant" ) return "invalid" ;
 
 		const normalized = this.normalizeContent( content ) ;
 		if ( ! normalized ) return "invalid" ;
@@ -547,16 +547,16 @@ class DeepMemory
 	{
 		const result = this.storeRecord( args.role, args.content ) ;
 
-		if ( result === "stored" )
+		if ( result == "stored" )
 		{
 			log( LOG_LEVEL.INFO, `Stored: 1 record (role=${ args.role })` ) ;
 			return "<memory-store>\n(stored)\n</memory-store>" ;
 		}
 
-		if ( result === "duplicate" )
+		if ( result == "duplicate" )
 			return "<memory-store>\n(already exists)\n</memory-store>" ;
 
-		if ( result === "similar" )
+		if ( result == "similar" )
 			return "<memory-store>\n(skipped: similar record exists)\n</memory-store>" ;
 
 		return "<memory-store>\n(error: invalid role or empty content)\n</memory-store>" ;
