@@ -17,7 +17,7 @@
 *	}
 *
 *	@name deep-memory
-*	@version 1.1.36
+*	@version 1.1.37
 *	@author Alejandro Carraretto
 *	@assistant DeepSeek-Flash
 *	@license AGPL-3.0
@@ -287,7 +287,7 @@ class DeepMemory
 		);
 
 		this.stmtRecent = this.db.prepare(
-			"SELECT content FROM records ORDER BY created DESC LIMIT ?"
+			"SELECT content FROM records ORDER BY created DESC, rowid DESC LIMIT ?"
 		);
 
 		const pruned = this.prune( this.config.data_keep_days ) ;
